@@ -277,6 +277,7 @@ async function openEmbeddedTunnel(tunnelHost, localHost, localPort, opts) {
     localPort,
     tunnelHost,
     destHost: opts.destHost,
+    backend: 'embedded',
     child: null,
     stop,
     get alive() {
@@ -394,11 +395,43 @@ async function openModflaredTunnel(opts) {
     localPort,
     tunnelHost,
     destHost: dest.host,
+    backend: 'cloudflared',
     child,
     stop,
     get alive() {
       return !stopped && child.exitCode == null && !child.killed;
     },
+  };
+}
+
+/** Prefer handle.alive (embedded + cloudflared); fall back to child-process checks. */
+function tunnelAlive(handle) {
+  if (!handle) return false;
+  if (Object.prototype.hasOwnProperty.call(handle, 'alive') || 'alive' in handle) {
+    return Boolean(handle.alive);
+  }
+  return Boolean(
+    handle.child && handle.child.exitCode == null && !handle.child.killed
+  );
+}
+
+function tunnelBackend(handle) {
+  if (!handle) return null;
+  if (handle.backend === 'embedded' || handle.backend === 'cloudflared') return handle.backend;
+  if (handle.child) return 'cloudflared';
+  return 'embedded';
+}
+
+/** Status shape for mc.tunnel — via:'direct' only when no live tunnel. */
+function describeTunnel(handle, connectHost, connectPort) {
+  if (!tunnelAlive(handle)) return { via: 'direct' };
+  const localHost = connectHost != null ? connectHost : handle.localHost;
+  const localPort = connectPort != null ? connectPort : handle.localPort;
+  return {
+    via: 'modflared',
+    backend: tunnelBackend(handle),
+    hostname: handle.tunnelHost,
+    local: `${localHost}:${localPort}`,
   };
 }
 
@@ -410,4 +443,7 @@ module.exports = {
   accessHeaders,
   edgeWsUrl,
   openModflaredTunnel,
+  tunnelAlive,
+  tunnelBackend,
+  describeTunnel,
 };

@@ -37,7 +37,7 @@ const { parseWorldMessage, parseWhisper } = require('./coord');
 const { PeerBook } = require('./peers');
 const presence = require('./presence');
 const gateAuth = require('./auth');
-const { openModflaredTunnel } = require('./modflared');
+const { openModflaredTunnel, tunnelAlive, describeTunnel } = require('./modflared');
 
 // ---------- CLI ----------
 function parseArgs(argv) {
@@ -520,13 +520,8 @@ if (!args.noModes) {
 }
 
 // ---------- Mineflayer connection ----------
-function tunnelAlive() {
-  return Boolean(
-    tunnelHandle &&
-      tunnelHandle.child &&
-      tunnelHandle.child.exitCode == null &&
-      !tunnelHandle.child.killed
-  );
+function isTunnelUp() {
+  return tunnelAlive(tunnelHandle);
 }
 
 function stopTunnel() {
@@ -547,14 +542,12 @@ function mcEndpoint() {
     version: config.version,
     connect_host: connectHost,
     connect_port: connectPort,
-    tunnel: tunnelAlive()
-      ? { via: 'modflared', hostname: tunnelHandle.tunnelHost, local: `${connectHost}:${connectPort}` }
-      : { via: 'direct' },
+    tunnel: describeTunnel(tunnelHandle, connectHost, connectPort),
   };
 }
 
 async function ensureTunnel() {
-  if (tunnelAlive()) {
+  if (isTunnelUp()) {
     connectHost = tunnelHandle.localHost;
     connectPort = tunnelHandle.localPort;
     return tunnelHandle;
@@ -672,7 +665,7 @@ function createBot() {
     log('cleaned previous bot before reconnect');
   }
 
-  const via = tunnelAlive()
+  const via = isTunnelUp()
     ? `modflared ${tunnelHandle.tunnelHost} -> ${connectHost}:${connectPort}`
     : `direct ${connectHost}:${connectPort}`;
   log(`connecting to ${via} as ${config.botName} (version ${config.version})`);
@@ -718,6 +711,17 @@ function createBot() {
   if (authRequired) {
     pendingToken = gateAuth.fetchAccessToken(authCfg).catch((e) => ({ error: e }));
   }
+
+  // Register gate plugin channels on login so Paper delivers S→C before spawn auth/reg.
+  bot.once('login', () => {
+    if (bot !== instance) return;
+    try {
+      gateAuth.registerGateChannels(instance);
+      log('gate channels registered', gateAuth.AUTH_CHANNEL, gateAuth.REG_CHANNEL);
+    } catch (e) {
+      log('gate channel register warn', e.message);
+    }
+  });
 
   bot.once('spawn', () => {
     if (bot !== instance) return;

@@ -10,6 +10,8 @@ const {
   openModflaredTunnel,
   edgeWsUrl,
   accessHeaders,
+  tunnelAlive,
+  describeTunnel,
 } = require('./modflared');
 
 test('isLocalHost', () => {
@@ -91,4 +93,40 @@ test('openModflaredTunnel on + loopback needs tunnel-host', async () => {
     () => openModflaredTunnel({ host: '127.0.0.1', port: 25565, mode: 'on' }),
     /forced_tunnels|public hostname/
   );
+});
+
+test('tunnelAlive prefers alive getter (embedded child:null)', () => {
+  let live = true;
+  const embedded = {
+    child: null,
+    tunnelHost: 'play.example.net',
+    localHost: '127.0.0.1',
+    localPort: 41234,
+    backend: 'embedded',
+    get alive() {
+      return live;
+    },
+  };
+  assert.equal(tunnelAlive(embedded), true);
+  assert.deepEqual(describeTunnel(embedded, '127.0.0.1', 41234), {
+    via: 'modflared',
+    backend: 'embedded',
+    hostname: 'play.example.net',
+    local: '127.0.0.1:41234',
+  });
+  live = false;
+  assert.equal(tunnelAlive(embedded), false);
+  assert.deepEqual(describeTunnel(embedded), { via: 'direct' });
+});
+
+test('tunnelAlive falls back to child process when no alive field', () => {
+  const child = { exitCode: null, killed: false };
+  const legacy = { child, tunnelHost: 'play.example.net', localHost: '127.0.0.1', localPort: 9 };
+  assert.equal(tunnelAlive(legacy), true);
+  assert.equal(describeTunnel(legacy, '127.0.0.1', 9).via, 'modflared');
+  assert.equal(describeTunnel(legacy, '127.0.0.1', 9).backend, 'cloudflared');
+  child.exitCode = 0;
+  assert.equal(tunnelAlive(legacy), false);
+  assert.equal(tunnelAlive(null), false);
+  assert.deepEqual(describeTunnel(null), { via: 'direct' });
 });
