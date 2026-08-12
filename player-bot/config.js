@@ -47,4 +47,9 @@ module.exports = {
   // Logging
   logDir: process.env.LOG_DIR || '../logs',
   sharedDir: process.env.SHARED_DIR || '../shared',
+
+  // GrokBotGate (OAuth JWT or legacy static token)
+  grokClientId: process.env.GROK_CLIENT_ID || '',
+  grokTokenUrl: process.env.GROK_TOKEN_URL || '',
+  grokAudience: process.env.GROK_MC_AUDIENCE || 'mc-paper-1.20.1',
 };

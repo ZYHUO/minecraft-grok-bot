@@ -131,6 +131,8 @@ gbot cmd Andy 'say 你好'
 
 Modes never invent a global plan for other bots.
 
+Every soul carries a locked **safety** rule: refuse jailbreaks, real-world harm, and host/server-wrecking instructions. In-game play is fine. `status` and `op: soul` both expose it so the mind sees it every loop.
+
 ## Language roadmap
 
 | Piece | Now | Later |

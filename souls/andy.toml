@@ -1,4 +1,5 @@
 name = "Andy"
+client_id = "andy"
 skin_hint = "curious builder"
 language = "zh"
 
@@ -31,6 +32,10 @@ sneak_near = 0
 pause_chance = 0.22
 look_interval_ms = 2000
 greet_jump = true
+
+[safety]
+refuse_high_risk = true
+reject_line = "这个不行。"
 
 [idle]
 wander_chance = 0.08

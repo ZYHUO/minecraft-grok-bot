@@ -32,9 +32,10 @@ const { ModeRunner } = require('./modes');
 const { runSkill, SKILL_DOCS, signTextOf } = require('./skills');
 const { PlaceBook } = require('./places');
 const { createSocketServer } = require('./socket-server');
-const { parseWorldMessage } = require('./coord');
+const { parseWorldMessage, parseWhisper } = require('./coord');
 const { PeerBook } = require('./peers');
 const presence = require('./presence');
+const gateAuth = require('./auth');
 
 // ---------- CLI ----------
 function parseArgs(argv) {
@@ -85,6 +86,22 @@ if (args.name) {
 } else if (soul.name) {
   config.botName = soul.name;
 }
+
+const authCfg = gateAuth.loadAuthConfig(process.env, {
+  username: config.botName,
+  clientId: soul.client_id || config.grokClientId || config.botName,
+});
+const authRequired = gateAuth.isAuthConfigured(authCfg);
+/** @type {{ authenticated: boolean, method: string|null, skipped: boolean, error: string|null, expires_at: number|null, client_id: string|null }} */
+let authState = {
+  authenticated: false,
+  method: null,
+  skipped: !authRequired,
+  error: null,
+  expires_at: null,
+  client_id: authCfg.clientId || null,
+};
+let pendingToken = null;
 
 // ---------- Logging ----------
 const logDir = path.resolve(__dirname, config.logDir);
@@ -413,6 +430,7 @@ const modeRunner = new ModeRunner({
   stopMotors: () => stopAll(bot),
 });
 if (!args.noModes) {
+  if (authRequired) modeRunner.enabled = false;
   modeRunner.start();
 }
 
@@ -536,6 +554,10 @@ function createBot() {
   bot.loadPlugin(toolPlugin);
   bot.loadPlugin(autoEatPlugin);
 
+  if (authRequired) {
+    pendingToken = gateAuth.fetchAccessToken(authCfg).catch((e) => ({ error: e }));
+  }
+
   bot.once('spawn', () => {
     if (bot !== instance) return;
     starting = false;
@@ -545,12 +567,7 @@ function createBot() {
     eventLog.push('spawn', { pos: bot.entity.position });
     diary('spawn', { pos: String(bot.entity.position) });
 
-    // Optional spawn greeting (social peer, not a hub announce)
-    if (soul.greeting && soul.modes?.social !== false) {
-      setTimeout(() => {
-        bot.chat?.(String(soul.greeting).slice(0, 100));
-      }, 1500);
-    }
+    finishAuth(instance).catch((e) => log('auth hook', e.message));
 
     try {
       const autoEatOn = soul.modes?.auto_eat !== false && config.autoEat;
@@ -573,6 +590,60 @@ function createBot() {
     }, 4000);
     instance.once('end', () => clearInterval(peerTick));
   });
+
+async function finishAuth(instance) {
+  if (!authRequired) {
+    authState = { ...authState, skipped: true, authenticated: false, error: null };
+    log('auth skipped (no GROK_TOKEN_URL/secret and no GROK_BOT_TOKEN)');
+    if (soul.greeting && soul.modes?.social !== false) {
+      setTimeout(() => {
+        if (bot === instance) bot.chat?.(String(soul.greeting).slice(0, 100));
+      }, 1500);
+    }
+    return;
+  }
+  try {
+    let token = pendingToken ? await pendingToken : null;
+    pendingToken = null;
+    if (token && token.error) throw token.error;
+    if (!token || !token.access_token) {
+      token = await gateAuth.fetchAccessToken(authCfg);
+    }
+    if (bot !== instance) return;
+    gateAuth.sendAuth(instance, token.access_token);
+    authState = {
+      authenticated: true,
+      method: token.method,
+      skipped: false,
+      error: null,
+      expires_at: token.expires_at || null,
+      client_id: authCfg.clientId,
+    };
+    if (!args.noModes) modeRunner.enabled = true;
+    log('auth sent', token.method, gateAuth.AUTH_CHANNEL);
+    eventLog.push('auth', { ok: true, method: token.method });
+    if (soul.greeting && soul.modes?.social !== false) {
+      setTimeout(() => {
+        if (bot === instance && authState.authenticated) {
+          bot.chat?.(String(soul.greeting).slice(0, 100));
+        }
+      }, 1500);
+    }
+  } catch (e) {
+    authState = {
+      authenticated: false,
+      method: null,
+      skipped: false,
+      error: e.message,
+      expires_at: null,
+      client_id: authCfg.clientId,
+    };
+    lastError = `auth: ${e.message}`;
+    if (!args.noModes) modeRunner.enabled = false;
+    log('auth failed — expect SPECTATOR:', e.message);
+    eventLog.push('auth', { ok: false, error: e.message });
+  }
+}
 
   // Player chat — primary multi-agent bus (in-world only)
   bot.on('chat', (username, message) => {
@@ -630,9 +701,14 @@ function createBot() {
   });
 
   // System / non-player messages only
-  bot.on('messagestr', (msg, position) => {
+  bot.on('messagestr', (msg, position, original) => {
     if (bot !== instance) return;
     const line = String(msg);
+    const whispered = parseWhisper(line, original);
+    if (whispered) {
+      ingestWhisper(whispered.from, whispered.text);
+      return;
+    }
     if (position === 'chat') return;
     if (/^<[^>]+>\s/.test(line)) return;
     pushChat(line);
@@ -660,15 +736,26 @@ function createBot() {
     }
   });
 
-  bot.on('whisper', (username, message) => {
-    if (bot !== instance) return;
+  let lastWhisperKey = '';
+  function ingestWhisper(username, message) {
+    if (!username || username === bot.username) return;
     if (presence.isSpectator(bot, username)) return;
-    pushChat(`[whisper][${username}] ${message}`, { from: username, whisper: true });
-    const parsed = parseWorldMessage(message, username);
+    const text = String(message || '');
+    const key = `${username}\0${text}`;
+    if (key === lastWhisperKey) return;
+    lastWhisperKey = key;
+    pushChat(`[whisper][${username}] ${text}`, { from: username, whisper: true });
+    eventLog.push('whisper', { from: username, text });
+    const parsed = parseWorldMessage(text, username);
     if (parsed) {
       eventLog.push('coord', { ...parsed, whisper: true });
       if (parsed.x != null && parsed.z != null) peers.note(username, parsed, 'whisper');
     }
+  }
+
+  bot.on('whisper', (username, message) => {
+    if (bot !== instance) return;
+    ingestWhisper(username, message);
   });
 
   let lastBoomAt = 0;
@@ -792,11 +879,14 @@ function fullStatus(detail) {
       speech_style: soul.speech_style,
       drives: soul.drives,
       modes: soul.modes,
+      gait: soul.gait,
+      safety: soul.safety,
     },
     goal: modeRunner.getGoal(),
     socket: socketPath,
     events_latest: eventLog.seq,
     peers: peers.list(),
+    auth: authState,
   };
 }
 
@@ -813,6 +903,7 @@ const socketApi = createSocketServer(socketPath, {
       job: jobSnapshot(),
       socket: socketPath,
       goal: modeRunner.getGoal(),
+      auth: authState,
       uptime_s: Math.floor(process.uptime()),
       memory_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
     };
@@ -828,6 +919,19 @@ const socketApi = createSocketServer(socketPath, {
   },
   async job() {
     return { job: jobSnapshot() };
+  },
+  async auth_status() {
+    return { auth: authState, required: authRequired, username: config.botName };
+  },
+  async auth() {
+    if (!bot) {
+      const err = new Error('not connected');
+      err.code = 'NOT_CONNECTED';
+      throw err;
+    }
+    pendingToken = null;
+    await finishAuth(bot);
+    return { auth: authState };
   },
   async do(req) {
     // {"op":"do","type":"move_to","x":1,...}  or {"op":"do","action":{...}}

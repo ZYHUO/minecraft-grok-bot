@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node player-bot.js",
-    "player": "node player-bot.js"
+    "player": "node player-bot.js",
+    "test": "node --test auth.test.js"
   },
   "dependencies": {
     "express": "^4.21.2",

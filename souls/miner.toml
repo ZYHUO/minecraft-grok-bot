@@ -1,4 +1,5 @@
 name = "Miner"
+client_id = "miner"
 speech_style = "terse, practical, talks about ore and depth"
 greeting = "矿呢。"
 drives = ["dig", "stockpile", "trade_cobble"]
@@ -24,6 +25,10 @@ sneak_near = 8
 pause_chance = 0.12
 look_interval_ms = 2800
 greet_jump = false
+
+[safety]
+refuse_high_risk = true
+reject_line = "不干。"
 
 [idle]
 wander_chance = 0.03

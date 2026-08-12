@@ -103,6 +103,9 @@ func cmdSpawn(args []string) error {
 	mcPort := fs.Int("mc-port", 25565, "MC port")
 	httpPort := fs.Int("http-port", 0, "legacy HTTP (0=off)")
 	noModes := fs.Bool("no-modes", false, "disable autonomous modes")
+	clientID := fs.String("client-id", os.Getenv("GROK_CLIENT_ID"), "GrokBotGate client_id")
+	tokenURL := fs.String("token-url", os.Getenv("GROK_TOKEN_URL"), "OAuth token URL")
+	audience := fs.String("audience", os.Getenv("GROK_MC_AUDIENCE"), "JWT audience")
 	_ = fs.Parse(args)
 	if *name == "" {
 		return fmt.Errorf("spawn requires -name")
@@ -157,6 +160,18 @@ func cmdSpawn(args []string) error {
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	cmd.Dir = filepath.Join(root, "player-bot")
+	env := append([]string{}, os.Environ()...)
+	if *clientID != "" {
+		env = append(env, "GROK_CLIENT_ID="+*clientID)
+	}
+	if *tokenURL != "" {
+		env = append(env, "GROK_TOKEN_URL="+*tokenURL)
+	}
+	if *audience != "" {
+		env = append(env, "GROK_MC_AUDIENCE="+*audience)
+	}
+	env = append(env, "BOT_NAME="+*name)
+	cmd.Env = env
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -238,8 +253,12 @@ func parseDoLine(s string) map[string]interface{} {
 		return nil
 	}
 	switch parts[0] {
-	case "status", "health", "job", "events", "soul", "modes", "stop", "quit", "ping":
-		m := map[string]interface{}{"op": parts[0]}
+	case "status", "health", "job", "events", "soul", "modes", "stop", "quit", "ping", "auth-status", "auth_status", "auth":
+		op := parts[0]
+		if op == "auth-status" {
+			op = "auth_status"
+		}
+		m := map[string]interface{}{"op": op}
 		if parts[0] == "events" && len(parts) > 1 {
 			if n, err := strconv.Atoi(parts[1]); err == nil {
 				m["since"] = n
@@ -539,6 +558,7 @@ func cmdAttach(args []string) error {
 	fmt.Println("  skill help | skill gather oak_log 8 | skill write_sign line1\\nline2")
 	fmt.Println("  skill remember_here home | skill go_place home | skill view_chest")
 	fmt.Println("  skill write_book hello | skill put_chest cobblestone 32 | goal ... | stop")
+	fmt.Println("  auth-status | skill go_find NAME")
 	fmt.Println("empty line / ctrl+D to exit attach (body keeps running)")
 	sc := bufio.NewScanner(os.Stdin)
 	for {

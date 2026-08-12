@@ -19,6 +19,33 @@
 
 const TAG_RE = /^\[(meet|trade|need|have|help|claim|mail|here|night|forge|sign)\]\s*(.*)$/i;
 
+function parseWhisper(text, original) {
+  const t = String(text || '').trim();
+  const translate = original?.translate || '';
+  if (/message\.display\.incoming|msg_command_incoming|commands\.message/i.test(translate)) {
+    const withs = original.with || [];
+    const from =
+      withs[0]?.text ||
+      withs[0]?.insertion ||
+      (typeof withs[0] === 'string' ? withs[0] : null) ||
+      withs[0]?.toString?.() ||
+      null;
+    const body =
+      withs[1]?.text ||
+      (typeof withs[1] === 'string' ? withs[1] : null) ||
+      withs.slice(1).map((w) => (typeof w === 'string' ? w : w?.text || w?.toString?.() || '')).join(' ') ||
+      t;
+    if (from) return { from: String(from).replace(/[<>]/g, ''), text: String(body || '').trim() };
+  }
+  let m = t.match(/^(\w{1,16}) whispers(?: to you)?:?\s*(.*)$/i);
+  if (m) return { from: m[1], text: m[2] };
+  m = t.match(/^\[(\w{1,16}) -> \w+\s?\]\s*(.*)$/);
+  if (m) return { from: m[1], text: m[2] };
+  m = t.match(/^(\w{1,16})\s*(?:悄悄地)?对你(?:低语|说)\s*[:：]\s*(.*)$/);
+  if (m) return { from: m[1], text: m[2] };
+  return null;
+}
+
 function parseCoords(s) {
   const text = String(s || '');
   let m = text.match(
@@ -150,6 +177,7 @@ function isMailFor(title, username) {
 
 module.exports = {
   parseWorldMessage,
+  parseWhisper,
   parseCoords,
   formatMeet,
   formatTrade,

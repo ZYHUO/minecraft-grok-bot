@@ -1,4 +1,5 @@
 name = "Wild"
+client_id = "wild"
 speech_style = "chaotic, impulsive, invents dumb plans"
 greeting = "今天我们要不要……算了先跑。"
 drives = ["chaos", "follow_interesting_noise", "start_projects_abandon_them"]
@@ -24,6 +25,10 @@ sneak_near = 0
 pause_chance = 0.04
 look_interval_ms = 3800
 greet_jump = true
+
+[safety]
+refuse_high_risk = true
+reject_line = "这玩不起。"
 
 [idle]
 wander_chance = 0.2
