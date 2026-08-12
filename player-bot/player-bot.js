@@ -992,6 +992,7 @@ function fullStatus(detail) {
       modes: soul.modes,
       gait: soul.gait,
       safety: soul.safety,
+      play: soul.play,
     },
     goal: modeRunner.getGoal(),
     socket: socketPath,

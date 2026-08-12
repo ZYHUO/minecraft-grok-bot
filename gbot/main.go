@@ -301,6 +301,8 @@ func parseDoLine(s string) map[string]interface{} {
 		return map[string]interface{}{"op": "say", "text": strings.Join(parts[1:], " ")}
 	case "goal":
 		return map[string]interface{}{"op": "goal", "text": strings.Join(parts[1:], " ")}
+	case "wrap_up", "wrapup", "settle":
+		return map[string]interface{}{"op": "skill", "skill": "wrap_up"}
 	case "hunt", "kill", "fight":
 		m := map[string]interface{}{"op": "skill", "skill": "hunt"}
 		if len(parts) > 1 {
@@ -621,7 +623,7 @@ func cmdAttach(args []string) error {
 	fmt.Println("  skill help | skill gather oak_log 8 | skill write_sign line1\\nline2")
 	fmt.Println("  skill remember_here home | skill go_place home | skill view_chest")
 	fmt.Println("  skill write_book hello | skill put_chest cobblestone 32 | goal ... | stop")
-	fmt.Println("  auth-status | skill go_find NAME | hunt zombie | defend")
+	fmt.Println("  auth-status | skill go_find NAME | hunt zombie | defend | wrap_up")
 	fmt.Println("empty line / ctrl+D to exit attach (body keeps running)")
 	sc := bufio.NewScanner(os.Stdin)
 	for {

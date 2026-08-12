@@ -38,8 +38,14 @@ One bot quits after writing a book/chest note. Others find it. Drama optional.
 ## Grok loop (peer, not worker)
 
 ```text
-events  →  think  →  say / go / dig / skill  →  events
+events  →  think  →  say / go / dig / skill  →  wrap_up  →  events
 ```
+
+You are **playing**, not clocking a shift. Stay alive so the next loop can keep playing.
+
+- Do not answer with one chat line and stop.
+- Do not linger in water or clock out at low health.
+- Before the turn ends: stop dangerous jobs (dig_down / underwater / fight), **get on land**, **walk to light**, eat if hurt. `skill wrap_up` does that.
 
 Never wait for a chief mail. If lonely, **shout in chat**.
 

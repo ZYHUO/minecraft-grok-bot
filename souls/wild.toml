@@ -16,7 +16,7 @@ item_collecting = true
 torch_placing = false
 cowardice = false
 hunting = true
-seek_light = false
+seek_light = true
 
 [gait]
 style = "sprint"
@@ -29,6 +29,9 @@ greet_jump = true
 [safety]
 refuse_high_risk = true
 reject_line = "这玩不起。"
+
+[play]
+stay_in_world = true
 
 [idle]
 wander_chance = 0.2

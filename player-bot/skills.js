@@ -947,6 +947,95 @@ async function goToSurface(ctx) {
   });
 }
 
+function findShore(bot, range = 16) {
+  const me = bot.entity?.position;
+  if (!me) return null;
+  let best = null;
+  let bestD = Infinity;
+  const origin = me.floored();
+  for (let dx = -range; dx <= range; dx++) {
+    for (let dz = -range; dz <= range; dz++) {
+      const p = origin.offset(dx, 0, dz);
+      const feet = bot.blockAt(p);
+      const below = bot.blockAt(p.offset(0, -1, 0));
+      if (!feet || !below) continue;
+      if (!isAir(feet.name) || isFluidName(feet.name)) continue;
+      if (isAir(below.name) || isFluidName(below.name)) continue;
+      const d = Math.abs(dx) + Math.abs(dz);
+      if (d > 0 && d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+  }
+  return best;
+}
+
+function inWater(bot) {
+  if (bot.entity?.isInWater) return true;
+  const b = bot.blockAt(bot.entity.position);
+  const a = bot.blockAt(bot.entity.position.offset(0, 1, 0));
+  return (
+    (isFluidName(b?.name) && String(b.name).includes('water')) ||
+    (isFluidName(a?.name) && String(a.name).includes('water'))
+  );
+}
+
+async function wrapUp(ctx) {
+  const { bot } = ctx;
+  ensureConnected(bot);
+  throwIfAborted(ctx);
+  try {
+    await stopAll(bot);
+  } catch {
+    /* */
+  }
+  const wet = inWater(bot);
+  if (wet) {
+    const shore = findShore(bot, 16);
+    if (shore) {
+      try {
+        await nav(ctx, shore, 2, 12000);
+      } catch (e) {
+        if (e.code === 'ABORTED') throw e;
+      }
+    }
+    if (inWater(bot)) {
+      try {
+        await goToSurface(ctx);
+      } catch (e) {
+        if (e.code === 'ABORTED') throw e;
+      }
+    }
+  }
+  if ((bot.health != null && bot.health <= 14) || (bot.food != null && bot.food <= 8)) {
+    try {
+      await consume(ctx, {});
+    } catch (e) {
+      if (e.code === 'ABORTED') throw e;
+    }
+  }
+  const here = bot.blockAt(bot.entity.position);
+  const light = presence.blockLightLevel(here);
+  if (light < 9) {
+    const lamp = presence.findShelterLight(bot, 24);
+    if (lamp?.position) {
+      try {
+        await nav(ctx, lamp.position, 3, 12000);
+      } catch (e) {
+        if (e.code === 'ABORTED') throw e;
+      }
+    }
+  }
+  const after = bot.blockAt(bot.entity.position);
+  return ok('settled', {
+    in_water: inWater(bot),
+    light: presence.blockLightLevel(after),
+    health: bot.health,
+    food: bot.food,
+  });
+}
+
 // ----- chests -----
 async function openNearestChest(bot, config, maxDistance = 16) {
   const chest = nearestBlock(
@@ -1854,6 +1943,7 @@ const SKILL_DOCS = {
   place_here: 'Place block near feet',
   dig_down: 'Dig downward carefully',
   surface: 'Climb using column scan',
+  wrap_up: 'End-of-turn: stop danger, leave water, eat if low, walk to light',
   view_chest: 'Open nearest chest and list contents',
   put_chest: 'Deposit item into nearest chest',
   take_chest: 'Withdraw item from nearest chest',
@@ -1998,6 +2088,9 @@ async function runSkill(name, ctxOrBot, runActionOrArgs, maybeArgs) {
     dig_down: digDown,
     surface: goToSurface,
     go_to_surface: goToSurface,
+    wrap_up: wrapUp,
+    wrapup: wrapUp,
+    settle: wrapUp,
     view_chest: viewChest,
     put_chest: putInChest,
     put_in_chest: putInChest,

@@ -37,6 +37,9 @@ greet_jump = true
 refuse_high_risk = true
 reject_line = "这个不行。"
 
+[play]
+stay_in_world = true
+
 [idle]
 wander_chance = 0.08
 wander_radius = 12

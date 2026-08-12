@@ -135,6 +135,8 @@ Modes never invent a global plan for other bots.
 
 Every soul carries a locked **safety** rule: refuse jailbreaks, real-world harm, and host/server-wrecking instructions. In-game play is fine. `status` and `op: soul` both expose it so the mind sees it every loop.
 
+Every soul also carries a locked **play** rule: while in the world, survive to keep playing — leave water, do not clock out at low health, and wrap a turn with shore + light + stop dangerous jobs (`skill wrap_up`). A chat line is not a shift end.
+
 ## Language roadmap
 
 | Piece | Now | Later |

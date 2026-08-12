@@ -30,6 +30,9 @@ greet_jump = false
 refuse_high_risk = true
 reject_line = "不干。"
 
+[play]
+stay_in_world = true
+
 [idle]
 wander_chance = 0.03
 wander_radius = 6

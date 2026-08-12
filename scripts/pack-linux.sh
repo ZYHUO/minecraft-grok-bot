@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GO="${GO:-/usr/local/go/bin/go}"
 NODE_VER="${NODE_VER:-22.14.0}"
-VERSION="${VERSION:-0.2.0}"
+VERSION="${VERSION:-0.2.1}"
 ARCHS="${1:-amd64}"
 if [[ "$ARCHS" == "all" ]]; then
   ARCHS="amd64 arm64"

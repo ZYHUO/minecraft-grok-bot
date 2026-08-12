@@ -144,16 +144,42 @@ class ModeRunner {
     const bname = block?.name || 'air';
     const aname = above?.name || 'air';
 
-    if (aname === 'water' || bname === 'water') {
-      bot.setControlState('jump', true);
+    if (bot.entity.isInWater || aname === 'water' || bname === 'water' || aname === 'flowing_water' || bname === 'flowing_water') {
+      this.emit('mode', { name: 'self_preservation', detail: 'water' });
+      try {
+        bot.setControlState('jump', true);
+        bot.setControlState('sprint', true);
+      } catch {
+        /* */
+      }
+      const shore = this.findShore(bot, 14);
+      if (shore) {
+        try {
+          await this.abortJob('water');
+        } catch {
+          /* */
+        }
+        try {
+          await this.runAction({
+            type: 'move_to',
+            x: shore.x,
+            y: shore.y,
+            z: shore.z,
+            range: 2,
+            timeout_ms: 8000,
+          });
+        } catch {
+          /* */
+        }
+      }
       setTimeout(() => {
         try {
           bot.setControlState('jump', false);
         } catch {
           /* */
         }
-      }, 400);
-      return false; // non-blocking
+      }, 600);
+      return true;
     }
 
     if (
@@ -208,19 +234,29 @@ class ModeRunner {
       } catch {
         /* */
       }
-      try {
-        bot.chat('血好少…先撤');
-      } catch {
-        /* */
-      }
-      // Direct keys — pathfinder would fight an in-flight aborted skill
-      try {
-        bot.setControlState('sprint', true);
-        bot.setControlState('back', true);
-        bot.setControlState('jump', true);
-        await new Promise((r) => setTimeout(r, 1500));
-      } catch {
-        /* */
+      const lamp = findShelterLight(bot, 20);
+      if (lamp?.position) {
+        try {
+          await this.runAction({
+            type: 'move_to',
+            x: lamp.position.x,
+            y: lamp.position.y,
+            z: lamp.position.z,
+            range: 3,
+            timeout_ms: 10000,
+          });
+        } catch {
+          /* */
+        }
+      } else {
+        try {
+          bot.setControlState('sprint', true);
+          bot.setControlState('back', true);
+          bot.setControlState('jump', true);
+          await new Promise((r) => setTimeout(r, 1200));
+        } catch {
+          /* */
+        }
       }
       return true;
     }
@@ -236,6 +272,33 @@ class ModeRunner {
     await bot.equip(item, 'hand');
     await bot.consume();
     return true;
+  }
+
+  findShore(bot, range = 14) {
+    const me = bot.entity?.position;
+    if (!me) return null;
+    const origin = me.floored();
+    let best = null;
+    let bestD = Infinity;
+    for (let dx = -range; dx <= range; dx++) {
+      for (let dz = -range; dz <= range; dz++) {
+        const p = origin.offset(dx, 0, dz);
+        const feet = bot.blockAt(p);
+        const below = bot.blockAt(p.offset(0, -1, 0));
+        if (!feet || !below) continue;
+        const fn = feet.name || '';
+        const bn = below.name || '';
+        if (fn !== 'air' && fn !== 'cave_air') continue;
+        if (fn.includes('water') || bn.includes('water') || bn.includes('lava')) continue;
+        if (bn === 'air' || bn === 'cave_air') continue;
+        const d = Math.abs(dx) + Math.abs(dz);
+        if (d > 0 && d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+    }
+    return best;
   }
 
   nearestMob(bot, pred, range) {
