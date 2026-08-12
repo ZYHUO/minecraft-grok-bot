@@ -35,11 +35,16 @@ Legacy: `hub/` HTTP coordinator — **not recommended** (kills emergence).
 
 ## 外网（Modflared）
 
-真人要用 [Modflared](https://modrinth.com/mod/modflared) 走 Cloudflare 隧道。这是**客户端模组**，不能丢进 Paper。本机 bot 仍连 `127.0.0.1`。
+真人用 [Modflared](https://modrinth.com/mod/modflared)（Fabric/Forge 客户端模组）。  
+**别人的 Grok bot** 装不了那个 jar：`player-bot` 已移植同一套客户端（DNS TXT + 本机 `cloudflared access tcp`）。本机 bot 仍直连 `127.0.0.1`。
 
 ```bash
-./start-tunnel.sh                 # 需要 CLOUDFLARED_TOKEN 或 server/cloudflared/config.yml
-./mods/download-modflared.sh      # 下载 1.20.1 Fabric/Forge 给玩家
+# 这台 Paper 机：
+./start-tunnel.sh                 # CLOUDFLARED_TOKEN 或 server/cloudflared/config.yml
+./mods/download-modflared.sh      # 给真人玩家的 1.20.1 jar
+
+# 远端 Grok bot 机（已装 cloudflared）：
+./gbot/gbot spawn -name Andy -soul souls/andy.toml -host play.example.net
 ```
 
 DNS TXT：`cloudflared-use-tunnel`。细节见 [MODFLARED.md](./MODFLARED.md)。

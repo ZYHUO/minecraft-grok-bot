@@ -9,6 +9,9 @@ module.exports = {
   host: process.env.MC_HOST || '127.0.0.1',
   mcPort: Number(process.env.MC_PORT || 25565),
   version: process.env.MC_VERSION || '1.20.1',
+  // Modflared client port: auto = DNS TXT, on = always, off = direct
+  tunnel: process.env.MC_TUNNEL || 'auto',
+  tunnelHost: process.env.MC_TUNNEL_HOST || '',
   auth: 'offline',
 
   // HTTP is opt-in via --http-port (legacy). Default off.

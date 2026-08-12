@@ -9,6 +9,7 @@
  * CLI:
  *   node player-bot.js --name Andy --socket /tmp/gbot/Andy.sock \
  *        --soul ../souls/andy.toml --host 127.0.0.1 --mc-port 25565
+ *        --host play.example.net --tunnel auto   # remote: same as Modflared
  *
  * Optional legacy HTTP (off by default):
  *   --http-port 3001
@@ -36,6 +37,7 @@ const { parseWorldMessage, parseWhisper } = require('./coord');
 const { PeerBook } = require('./peers');
 const presence = require('./presence');
 const gateAuth = require('./auth');
+const { openModflaredTunnel } = require('./modflared');
 
 // ---------- CLI ----------
 function parseArgs(argv) {
@@ -49,6 +51,8 @@ function parseArgs(argv) {
     else if (a === '--host') out.host = argv[++i];
     else if (a === '--mc-port') out.mcPort = Number(argv[++i]);
     else if (a === '--version') out.version = argv[++i];
+    else if (a === '--tunnel') out.tunnel = argv[++i];
+    else if (a === '--tunnel-host') out.tunnelHost = argv[++i];
     else if (a === '--no-modes') out.noModes = true;
     else if (a === '--help' || a === '-h') out.help = true;
   }
@@ -58,6 +62,7 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv);
 if (args.help) {
   console.log(`Usage: node player-bot.js --name <name> [--socket PATH] [--soul FILE] [--http-port N]
+  --host --mc-port --version --tunnel auto|on|off --tunnel-host HOST
   Default control: Unix socket at run/socks/<name>.sock (or --socket)
   HTTP only if --http-port is set. Prefer: gbot attach <name>`);
   process.exit(0);
@@ -70,6 +75,8 @@ const config = {
   host: args.host || defaults.host,
   mcPort: args.mcPort || defaults.mcPort,
   version: args.version || defaults.version,
+  tunnel: args.tunnel || defaults.tunnel,
+  tunnelHost: args.tunnelHost || defaults.tunnelHost,
 };
 
 const socketPath =
@@ -204,6 +211,10 @@ let lastError = null;
 let quitting = false;
 let reconnectTimer = null;
 let jobCounter = 0;
+/** @type {null | { localHost: string, localPort: number, tunnelHost: string, child: import('child_process').ChildProcess, stop: Function, alive?: boolean }} */
+let tunnelHandle = null;
+let connectHost = config.host;
+let connectPort = config.mcPort;
 
 /** @type {null | { id, type, state, target, message, startedAt, abortController }} */
 let currentJob = null;
@@ -509,6 +520,65 @@ if (!args.noModes) {
 }
 
 // ---------- Mineflayer connection ----------
+function tunnelAlive() {
+  return Boolean(
+    tunnelHandle &&
+      tunnelHandle.child &&
+      tunnelHandle.child.exitCode == null &&
+      !tunnelHandle.child.killed
+  );
+}
+
+function stopTunnel() {
+  try {
+    tunnelHandle?.stop?.();
+  } catch {
+    /* */
+  }
+  tunnelHandle = null;
+  connectHost = config.host;
+  connectPort = config.mcPort;
+}
+
+function mcEndpoint() {
+  return {
+    host: config.host,
+    port: config.mcPort,
+    version: config.version,
+    connect_host: connectHost,
+    connect_port: connectPort,
+    tunnel: tunnelAlive()
+      ? { via: 'modflared', hostname: tunnelHandle.tunnelHost, local: `${connectHost}:${connectPort}` }
+      : { via: 'direct' },
+  };
+}
+
+async function ensureTunnel() {
+  if (tunnelAlive()) {
+    connectHost = tunnelHandle.localHost;
+    connectPort = tunnelHandle.localPort;
+    return tunnelHandle;
+  }
+  tunnelHandle = null;
+  const t = await openModflaredTunnel({
+    host: config.host,
+    port: config.mcPort,
+    mode: config.tunnel,
+    forcedHost: config.tunnelHost,
+    log,
+  });
+  if (t) {
+    tunnelHandle = t;
+    connectHost = t.localHost;
+    connectPort = t.localPort;
+    log('modflared: mineflayer ->', `${connectHost}:${connectPort}`, 'via', t.tunnelHost);
+  } else {
+    connectHost = config.host;
+    connectPort = config.mcPort;
+  }
+  return t;
+}
+
 function clearReconnect() {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -522,8 +592,21 @@ function scheduleReconnect() {
   log(`reconnect in ${config.reconnectDelayMs}ms ...`);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    createBot();
+    bootConnect();
   }, config.reconnectDelayMs);
+}
+
+async function bootConnect() {
+  if (quitting) return;
+  try {
+    await ensureTunnel();
+  } catch (e) {
+    lastError = e.message;
+    log('modflared failed', e.message);
+    scheduleReconnect();
+    return;
+  }
+  createBot();
 }
 
 /**
@@ -589,13 +672,16 @@ function createBot() {
     log('cleaned previous bot before reconnect');
   }
 
-  log(`connecting to ${config.host}:${config.mcPort} as ${config.botName} (version ${config.version})`);
+  const via = tunnelAlive()
+    ? `modflared ${tunnelHandle.tunnelHost} -> ${connectHost}:${connectPort}`
+    : `direct ${connectHost}:${connectPort}`;
+  log(`connecting to ${via} as ${config.botName} (version ${config.version})`);
 
   let instance;
   try {
     instance = mineflayer.createBot({
-      host: config.host,
-      port: config.mcPort,
+      host: connectHost,
+      port: connectPort,
       username: config.botName,
       auth: 'offline',
       version: config.version,
@@ -908,6 +994,7 @@ function fullStatus(detail) {
     events_latest: eventLog.seq,
     peers: peers.list(),
     auth: authState,
+    mc: mcEndpoint(),
   };
 }
 
@@ -920,7 +1007,7 @@ const socketApi = createSocketServer(socketPath, {
       bot: config.botName,
       connected,
       starting,
-      mc: { host: config.host, port: config.mcPort, version: config.version },
+      mc: mcEndpoint(),
       job: jobSnapshot(),
       socket: socketPath,
       goal: modeRunner.getGoal(),
@@ -1096,6 +1183,7 @@ const socketApi = createSocketServer(socketPath, {
     } catch {
       /* */
     }
+    stopTunnel();
     return { ok: true };
   },
 });
@@ -1124,7 +1212,7 @@ app.get('/health', (_req, res) => {
     socket: socketPath,
     connected,
     starting,
-    mc: { host: config.host, port: config.mcPort, version: config.version },
+    mc: mcEndpoint(),
     job: jobSnapshot(),
     uptime_s: Math.floor(process.uptime()),
     memory_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
@@ -1241,6 +1329,7 @@ app.post('/quit', async (_req, res) => {
   } catch {
     /* ignore */
   }
+  stopTunnel();
   setTimeout(() => process.exit(0), 300);
 });
 
@@ -1269,7 +1358,7 @@ app.use((_req, res) => {
 }
 
 startHttp();
-createBot();
+bootConnect();
 
 process.on('SIGINT', async () => {
   log('SIGINT');
@@ -1282,6 +1371,7 @@ process.on('SIGINT', async () => {
   } catch {
     /* ignore */
   }
+  stopTunnel();
   process.exit(0);
 });
 
@@ -1296,6 +1386,7 @@ process.on('SIGTERM', async () => {
   } catch {
     /* ignore */
   }
+  stopTunnel();
   process.exit(0);
 });
 

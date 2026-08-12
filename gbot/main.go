@@ -31,6 +31,15 @@ func getenvDefault(key, fallback string) string {
 	return fallback
 }
 
+func getenvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
 func processAlive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -106,9 +115,11 @@ func cmdSpawn(args []string) error {
 	fs := flag.NewFlagSet("spawn", flag.ExitOnError)
 	name := fs.String("name", "", "bot name (MC username)")
 	soul := fs.String("soul", "", "soul profile path")
-	host := fs.String("host", "127.0.0.1", "MC host")
-	mcPort := fs.Int("mc-port", 25565, "MC port")
+	host := fs.String("host", getenvDefault("MC_HOST", "127.0.0.1"), "MC host (public name for remote CF tunnel)")
+	mcPort := fs.Int("mc-port", getenvInt("MC_PORT", 25565), "MC port")
 	mcVersion := fs.String("mc-version", getenvDefault("MC_VERSION", "1.20.1"), "Minecraft protocol version")
+	tunnel := fs.String("tunnel", getenvDefault("MC_TUNNEL", "auto"), "Modflared tunnel: auto|on|off")
+	tunnelHost := fs.String("tunnel-host", os.Getenv("MC_TUNNEL_HOST"), "force CF access hostname (skip TXT)")
 	httpPort := fs.Int("http-port", 0, "legacy HTTP (0=off)")
 	noModes := fs.Bool("no-modes", false, "disable autonomous modes")
 	clientID := fs.String("client-id", "", "override GrokBotGate client_id (default: soul)")
@@ -152,6 +163,10 @@ func cmdSpawn(args []string) error {
 		"--host", *host,
 		"--mc-port", strconv.Itoa(*mcPort),
 		"--version", *mcVersion,
+		"--tunnel", *tunnel,
+	}
+	if *tunnelHost != "" {
+		argv = append(argv, "--tunnel-host", *tunnelHost)
 	}
 	if *httpPort > 0 {
 		argv = append(argv, "--http-port", strconv.Itoa(*httpPort))
@@ -603,6 +618,7 @@ func usage() {
 	fmt.Print(`gbot — decentralized body control (Unix socket JSONL, no hub)
 
   gbot spawn -name Andy [-soul souls/andy.toml] [-host 127.0.0.1] [-mc-port 25565] [-mc-version 1.20.1]
+  gbot spawn -name Andy -host play.example.net -tunnel auto
   gbot cmd Andy auth-status
   gbot stop Andy
   gbot list
@@ -613,7 +629,10 @@ func usage() {
 
 Env:
   GBOT_SOCKET          override socket path
+  MC_HOST / MC_PORT    default spawn target
   MC_VERSION           protocol (default 1.20.1)
+  MC_TUNNEL            auto|on|off (Modflared client; default auto)
+  MC_TUNNEL_HOST       force CF access hostname (skip DNS TXT)
   GROK_TOKEN_URL       OAuth token endpoint
   GROK_CLIENT_SECRET   per-bot secret (never pass on CLI)
   GROK_MC_AUDIENCE     JWT aud (default mc-paper-1.20.1)

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Start one decentralized player body (Unix socket control; no hub).
 # Usage: ./start-player.sh <name> [soul.toml] [host] [mc_port]
+# Remote CF tunnel: pass the public hostname; MC_TUNNEL=auto (Modflared client).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -42,6 +42,8 @@ Sustained interest needs **mess**: arguments in chat, failed trades, accidental 
 │  • Mineflayer motor (path, dig, place)                  │
 └──────────────────────────┬──────────────────────────────┘
                            │  Minecraft protocol
+                           │  (local 127.0.0.1, or Modflared-compatible
+                           │   cloudflared access tcp for remote bodies)
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Paper server — the only shared truth                   │
