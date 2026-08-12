@@ -24,7 +24,7 @@ Or JSONL:
 |-------|------|--------|
 | `gather` | block, count | collectBlock + tools + ore aliases; `INVENTORY_FULL` / `NEED_TOOL` |
 | `pickup` | range | walk over drops |
-| `craft` | item, count | `count` = 要几个（不是搓几次）。走近/放桌；失败会把格子里的材料收回 |
+| `craft` | item, count | `count` = 要几个。等背包同步后才算成功；没入包会先捡附近掉落再判定 |
 | `craft_plan` | item, count | steps + missing ingredients |
 | `smelt` / `clear_furnace` | item, count | nearby or placed furnace |
 | `use_on` | tool, target | `nothing` / block / entity / source water\|lava |

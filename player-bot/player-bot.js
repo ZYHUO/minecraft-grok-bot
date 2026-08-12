@@ -704,6 +704,9 @@ function createBot() {
   };
 
   bot.loadPlugin(pathfinder);
+  if (bot.pathfinder) {
+    bot.pathfinder.thinkTimeout = config.pathThinkTimeoutMs || 10000;
+  }
   bot.loadPlugin(collectBlock.plugin);
   bot.loadPlugin(toolPlugin);
   bot.loadPlugin(autoEatPlugin);

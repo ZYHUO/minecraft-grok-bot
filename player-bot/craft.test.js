@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const mc = require('./mcdata');
+const { isPathThinkTimeout } = require('./actions');
 
 const bot = {
   registry: {
@@ -40,6 +41,31 @@ test('maxCrafts from recipe delta', () => {
   };
   const recipe = { delta: [{ id: 23, count: -4 }, { id: 278, count: 1 }] };
   assert.equal(mc.maxCrafts(fake, recipe), 1);
+});
+
+test('craftLanded requires a real inventory gain', () => {
+  assert.equal(mc.craftLanded(0, 1, 1), true);
+  assert.equal(mc.craftLanded(2, 2, 1), false);
+  assert.equal(mc.craftLanded(1, 0, 1), false);
+});
+
+test('countInv uses inventory.count', () => {
+  const fake = {
+    inventory: {
+      count(id) {
+        return id === 7 ? 3 : 0;
+      },
+    },
+  };
+  assert.equal(mc.countInv(fake, 7), 3);
+  assert.equal(mc.countInv(fake, 1), 0);
+});
+
+test('isPathThinkTimeout matches pathfinder typo message', () => {
+  const e = new Error('Took to long to decide path to goal!');
+  e.name = 'Timeout';
+  assert.equal(isPathThinkTimeout(e), true);
+  assert.equal(isPathThinkTimeout(new Error('No path to the goal!')), false);
 });
 
 test('isPlankName / isLogName', () => {

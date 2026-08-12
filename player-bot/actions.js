@@ -57,6 +57,108 @@ function craftFailMessage(bot, itemName, recipe) {
   return `No recipe or missing ingredients for ${itemName}`;
 }
 
+function attachPlayerInvSync(bot) {
+  const client = bot._client;
+  const state = { windowItems: false };
+  if (!client || typeof client.on !== 'function') {
+    return {
+      state,
+      stop() {},
+      wait: async () => false,
+    };
+  }
+  const onItems = (pkt) => {
+    if (!pkt || pkt.windowId === 0 || pkt.windowId === undefined) state.windowItems = true;
+  };
+  client.on('window_items', onItems);
+  return {
+    state,
+    stop() {
+      client.removeListener('window_items', onItems);
+    },
+    async wait(timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
+      while (!state.windowItems && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      return state.windowItems;
+    },
+  };
+}
+
+async function forceInventoryRefresh(bot, table) {
+  if (bot.currentWindow && bot.currentWindow !== bot.inventory) {
+    try {
+      bot.closeWindow(bot.currentWindow);
+    } catch {
+      /* */
+    }
+  }
+  const block =
+    table ||
+    bot.findBlock?.({
+      matching: (b) => b && b.name === 'crafting_table',
+      maxDistance: 16,
+    });
+  if (!block) {
+    await new Promise((r) => setTimeout(r, 400));
+    return false;
+  }
+  const sync = attachPlayerInvSync(bot);
+  try {
+    bot.activateBlock(block);
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('window timeout')), 2000);
+      bot.once('windowOpen', () => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
+    if (bot.currentWindow && bot.currentWindow !== bot.inventory) {
+      bot.closeWindow(bot.currentWindow);
+    }
+    await sync.wait(1500);
+    return sync.state.windowItems;
+  } catch {
+    return sync.state.windowItems;
+  } finally {
+    sync.stop();
+    if (bot.currentWindow && bot.currentWindow !== bot.inventory) {
+      try {
+        bot.closeWindow(bot.currentWindow);
+      } catch {
+        /* */
+      }
+    }
+  }
+}
+
+async function pickupNearbyItems(bot, config, range = 6, signal = null, limit = 8) {
+  const me = bot.entity?.position;
+  if (!me || !bot.entities) return 0;
+  const drops = [];
+  for (const id of Object.keys(bot.entities)) {
+    const e = bot.entities[id];
+    if (!e || e.name !== 'item' || !e.position) continue;
+    const d = me.distanceTo(e.position);
+    if (d <= range) drops.push({ e, d });
+  }
+  drops.sort((a, b) => a.d - b.d);
+  let n = 0;
+  for (const { e } of drops.slice(0, limit)) {
+    if (signal?.aborted) break;
+    if (!bot.entities[e.id]) continue;
+    try {
+      await navigateTo(bot, config, e.position, 1.2, 8000, signal);
+      n += 1;
+      await new Promise((r) => setTimeout(r, 250));
+    } catch (err) {
+      if (err.code === 'ABORTED') throw err;
+    }
+  }
+  return n;
+}
+
 async function salvageCraftGrid(bot) {
   const win = bot.currentWindow || bot.inventory;
   if (!win?.slots) return;
@@ -155,6 +257,11 @@ function noPathError(msg = 'No path to target') {
   return err;
 }
 
+function isPathThinkTimeout(err) {
+  const msg = String(err?.message || err || '');
+  return err?.name === 'Timeout' || /decide path to goal/i.test(msg);
+}
+
 /**
  * Race a promise against abort signal + optional timeout.
  */
@@ -208,28 +315,58 @@ async function navigateTo(bot, config, pos, range, timeoutMs, signal) {
     err.code = 'BAD_ARGS';
     throw err;
   }
+  if (bot.pathfinder.thinkTimeout == null || bot.pathfinder.thinkTimeout < 8000) {
+    bot.pathfinder.thinkTimeout = config.pathThinkTimeoutMs || 10000;
+  }
   bot.pathfinder.setMovements(setupMovements(bot));
   const goal = new GoalNear(dest.x, dest.y, dest.z, range);
+  const closeEnough = () =>
+    bot.entity && bot.entity.position.distanceTo(dest) <= range + 1.2;
+
+  const runGoto = async () => {
+    await withAbortAndTimeout(bot.pathfinder.goto(goal), signal, timeoutMs, 'move_to');
+  };
+
+  const classifyNavError = (e) => {
+    if (e?.code === 'ABORTED' || e?.code === 'TIMEOUT') return e;
+    const msg = String(e?.message || e || '');
+    if (isPathThinkTimeout(e)) {
+      const err = new Error(msg || 'Took too long to decide path to goal');
+      err.code = 'TIMEOUT';
+      err.name = 'Timeout';
+      return err;
+    }
+    if (/no path|path.?stopped|unreachable|canceled|cancelled/i.test(msg) || e?.name === 'NoPath') {
+      return noPathError(msg || 'No path to target');
+    }
+    return e;
+  };
 
   // Prefer promise API if present (mineflayer-pathfinder)
   if (typeof bot.pathfinder.goto === 'function') {
     try {
-      await withAbortAndTimeout(bot.pathfinder.goto(goal), signal, timeoutMs, 'move_to');
+      await runGoto();
     } catch (e) {
       await stopAll(bot);
-      // Normalize pathfinder errors
-      const msg = String(e?.message || e || '');
-      if (e?.code === 'ABORTED' || e?.code === 'TIMEOUT') throw e;
-      if (/no path|path.?stopped|unreachable|canceled|cancelled/i.test(msg)) {
-        throw noPathError(msg || 'No path to target');
+      const err = classifyNavError(e);
+      if (err.code === 'ABORTED') throw err;
+      if (closeEnough()) return;
+      if (isPathThinkTimeout(e) || isPathThinkTimeout(err)) {
+        const prev = bot.pathfinder.thinkTimeout;
+        bot.pathfinder.thinkTimeout = Math.max(prev || 5000, 14000);
+        try {
+          await runGoto();
+          await stopAll(bot);
+          return;
+        } catch (e2) {
+          await stopAll(bot);
+          if (closeEnough()) return;
+          throw classifyNavError(e2);
+        } finally {
+          bot.pathfinder.thinkTimeout = prev;
+        }
       }
-      // pathfinder often throws Error with name
-      if (e?.name === 'NoPath' || e?.name === 'Timeout') {
-        const err = new Error(msg || e.name);
-        err.code = e.name === 'Timeout' ? 'TIMEOUT' : 'NO_PATH';
-        throw err;
-      }
-      throw e;
+      throw err;
     }
     await stopAll(bot);
     return;
@@ -721,15 +858,54 @@ async function executeAction(bot, config, body, signal) {
         }
         if (times > cap) times = cap;
 
+        const before = mc.countInv(bot, item.id);
+        const tableBlock = recipe.requiresTable ? table : null;
+        const sync = attachPlayerInvSync(bot);
         try {
-          await bot.craft(recipe, times, recipe.requiresTable ? table : null);
+          await bot.craft(recipe, times, tableBlock);
         } catch (e) {
+          sync.stop();
           await salvageCraftGrid(bot);
           const err = new Error(e.message || String(e));
           err.code = /missing ingredient/i.test(String(e.message || e)) ? 'NOT_FOUND' : 'ERROR';
           throw err;
         }
-        return { item: item.name, crafted: times * per, wanted: wantCount, times };
+        let synced = await sync.wait(1200);
+        sync.stop();
+        if (!synced) {
+          synced = await forceInventoryRefresh(bot, table);
+        } else {
+          await new Promise((r) => setTimeout(r, 80));
+        }
+        let after = mc.countInv(bot, item.id);
+        let picked = 0;
+        if (!mc.craftLanded(before, after, 1)) {
+          try {
+            picked = await pickupNearbyItems(bot, config, 8, signal, 8);
+          } catch (e) {
+            if (e.code === 'ABORTED') throw e;
+          }
+          after = mc.countInv(bot, item.id);
+        }
+        const gained = Math.max(0, after - before);
+        if (!mc.craftLanded(before, after, 1)) {
+          await salvageCraftGrid(bot);
+          const err = new Error(
+            synced
+              ? `Craft of ${itemName} did not land in inventory (server still has ${after}, had ${before})`
+              : `Craft of ${itemName} unconfirmed (no inventory sync; not reporting success)`
+          );
+          err.code = synced ? 'CRAFT_NOT_APPLIED' : 'CRAFT_UNCONFIRMED';
+          throw err;
+        }
+        return {
+          item: item.name,
+          crafted: gained,
+          wanted: wantCount,
+          times,
+          picked,
+          synced: Boolean(synced),
+        };
       };
 
       const result = await withAbortAndTimeout(doCraft(), signal, timeout, 'craft');
@@ -854,4 +1030,6 @@ module.exports = {
   stopAll,
   navigateTo,
   findItemByName,
+  pickupNearbyItems,
+  isPathThinkTimeout,
 };

@@ -44,6 +44,7 @@ module.exports = {
   // Job timeouts
   defaultJobTimeoutMs: Number(process.env.JOB_TIMEOUT_MS || 120000),
   moveTimeoutMs: Number(process.env.MOVE_TIMEOUT_MS || 90000),
+  pathThinkTimeoutMs: Number(process.env.PATH_THINK_TIMEOUT_MS || 10000),
   digTimeoutMs: Number(process.env.DIG_TIMEOUT_MS || 30000),
   craftTimeoutMs: Number(process.env.CRAFT_TIMEOUT_MS || 20000),
 

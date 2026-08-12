@@ -386,6 +386,25 @@ function craftBatches(wantCount, resultCount) {
   return Math.ceil(want / per);
 }
 
+function countInv(bot, itemId) {
+  if (!bot?.inventory) return 0;
+  if (typeof bot.inventory.count === 'function') {
+    try {
+      return Number(bot.inventory.count(itemId, null) || 0);
+    } catch {
+      /* */
+    }
+  }
+  return (bot.inventory.items() || [])
+    .filter((i) => i && (i.type === itemId || i.id === itemId))
+    .reduce((s, i) => s + (i.count || 0), 0);
+}
+
+/** True only if the result stack actually grew. Mineflayer may fake a craft locally. */
+function craftLanded(beforeCount, afterCount, minGain = 1) {
+  return Number(afterCount) >= Number(beforeCount) + Number(minGain || 1);
+}
+
 function isPlankName(name) {
   return /_planks$/.test(String(name || ''));
 }
@@ -422,6 +441,8 @@ module.exports = {
   resolveItemName,
   maxCrafts,
   craftBatches,
+  countInv,
+  craftLanded,
   isPlankName,
   isLogName,
 };
