@@ -4,10 +4,15 @@
  * GrokBotGate client: OAuth2 client-credentials JWT (or legacy static token).
  * Spawn → send plugin message grokbot:auth → Paper keeps SURVIVAL or forces SPECTATOR.
  * No hub. No tab prefix. Secrets never logged.
+ *
+ * Plugin channels must be registerChannel(name, type, true) so minecraft-protocol
+ * emits S→C events and Paper delivers messages (minecraft:register).
  */
 
 const AUTH_CHANNEL = 'grokbot:auth';
+const REG_CHANNEL = 'grokbot:reg';
 const DEFAULT_AUDIENCE = 'mc-paper-1.20.1';
+const CHANNEL_TYPE = ['restBuffer', []];
 
 function loadAuthConfig(env = process.env, opts = {}) {
   const username = String(opts.username || env.BOT_NAME || '').trim();
@@ -135,6 +140,43 @@ async function fetchAccessToken(cfg, hooks = {}) {
   throw err;
 }
 
+function protocolClient(bot) {
+  return bot?._client || null;
+}
+
+/** Register a custom plugin channel (sends minecraft:register when custom=true). */
+function ensureChannel(client, name) {
+  if (!client || typeof client.registerChannel !== 'function') return false;
+  try {
+    client.registerChannel(name, CHANNEL_TYPE, true);
+    return true;
+  } catch {
+    /* already registered */
+    return true;
+  }
+}
+
+/** Register grokbot:auth + grokbot:reg early (login) so Paper can deliver S→C. */
+function registerGateChannels(bot) {
+  const client = protocolClient(bot);
+  if (!client) {
+    const err = new Error('bot has no protocol client');
+    err.code = 'AUTH_SEND';
+    throw err;
+  }
+  ensureChannel(client, AUTH_CHANNEL);
+  ensureChannel(client, REG_CHANNEL);
+  return { channels: [AUTH_CHANNEL, REG_CHANNEL] };
+}
+
+function writePlugin(client, channel, data) {
+  if (typeof client.writeChannel === 'function') {
+    client.writeChannel(channel, data);
+    return;
+  }
+  client.write('custom_payload', { channel, data });
+}
+
 function sendAuth(bot, token) {
   const text = formatBearer(token);
   if (!text) {
@@ -143,29 +185,134 @@ function sendAuth(bot, token) {
     throw err;
   }
   const data = Buffer.from(text, 'utf8');
-  const client = bot?._client;
+  const client = protocolClient(bot);
   if (!client) {
     const err = new Error('bot has no protocol client');
     err.code = 'AUTH_SEND';
     throw err;
   }
   try {
-    if (typeof client.registerChannel === 'function') {
-      try {
-        client.registerChannel(AUTH_CHANNEL, ['restBuffer', []]);
-      } catch {
-        /* already registered */
-      }
-    }
-    if (typeof client.writeChannel === 'function') {
-      client.writeChannel(AUTH_CHANNEL, data);
-      return { channel: AUTH_CHANNEL, bytes: data.length };
-    }
+    registerGateChannels(bot);
+    writePlugin(client, AUTH_CHANNEL, data);
+    return { channel: AUTH_CHANNEL, bytes: data.length };
   } catch {
     /* fall through */
   }
   client.write('custom_payload', { channel: AUTH_CHANNEL, data });
   return { channel: AUTH_CHANNEL, bytes: data.length };
+}
+
+function bufferToUtf8(data) {
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (data instanceof Uint8Array) return Buffer.from(data).toString('utf8');
+  if (typeof data === 'string') return data;
+  if (data && Buffer.isBuffer(data.data)) return data.data.toString('utf8');
+  return String(data ?? '');
+}
+
+function parseRegJson(data) {
+  const text = bufferToUtf8(data).trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Optional older-server chat fallback: `[grokbot:reg] {...json...}` */
+function parseRegChatFallback(message) {
+  const m = String(message || '').match(/\[grokbot:reg\]\s*(\{[\s\S]*\})\s*$/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Request a reg code on grokbot:reg (primary) with optional chat fallback.
+ * Payload: raw UTF-8 JSON (restBuffer). Reply is JSON on the same channel.
+ */
+async function requestReg(bot, opts = {}) {
+  const client = protocolClient(bot);
+  if (!client) {
+    const err = new Error('bot has no protocol client');
+    err.code = 'REG_SEND';
+    throw err;
+  }
+  registerGateChannels(bot);
+
+  const timeoutMs = Number(opts.timeoutMs || 10000);
+  const chatFallback = opts.chatFallback !== false;
+  const request = opts.request != null ? opts.request : { op: 'request' };
+  const payload = Buffer.from(JSON.stringify(request), 'utf8');
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      finish(Object.assign(new Error(`grokbot:reg timeout after ${timeoutMs}ms`), { code: 'REG_TIMEOUT' }));
+    }, timeoutMs);
+
+    const finish = (err, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        client.off?.(REG_CHANNEL, onPlugin);
+        client.removeListener?.(REG_CHANNEL, onPlugin);
+      } catch {
+        /* */
+      }
+      if (bot && chatFallback) {
+        try {
+          bot.off?.('chat', onChat);
+          bot.removeListener?.('chat', onChat);
+          bot.off?.('messagestr', onMsg);
+          bot.removeListener?.('messagestr', onMsg);
+        } catch {
+          /* */
+        }
+      }
+      if (err) reject(err);
+      else resolve(result);
+    };
+
+    const accept = (json, via) => {
+      if (!json || typeof json !== 'object') return;
+      finish(null, { channel: REG_CHANNEL, via, payload: json });
+    };
+
+    const onPlugin = (data) => {
+      const json = parseRegJson(data);
+      if (json) accept(json, 'plugin');
+    };
+
+    const onChat = (_username, message) => {
+      const json = parseRegChatFallback(message);
+      if (json) accept(json, 'chat');
+    };
+
+    const onMsg = (msg) => {
+      const json = parseRegChatFallback(msg);
+      if (json) accept(json, 'chat');
+    };
+
+    if (typeof client.on === 'function') client.on(REG_CHANNEL, onPlugin);
+    if (chatFallback && bot) {
+      if (typeof bot.on === 'function') {
+        bot.on('chat', onChat);
+        bot.on('messagestr', onMsg);
+      }
+    }
+
+    try {
+      writePlugin(client, REG_CHANNEL, payload);
+    } catch (e) {
+      finish(Object.assign(e, { code: e.code || 'REG_SEND' }));
+    }
+  });
 }
 
 async function runGateAuth(bot, cfg, hooks = {}) {
@@ -188,11 +335,17 @@ async function runGateAuth(bot, cfg, hooks = {}) {
 
 module.exports = {
   AUTH_CHANNEL,
+  REG_CHANNEL,
   DEFAULT_AUDIENCE,
   loadAuthConfig,
   isAuthConfigured,
   formatBearer,
   fetchAccessToken,
+  ensureChannel,
+  registerGateChannels,
   sendAuth,
+  parseRegJson,
+  parseRegChatFallback,
+  requestReg,
   runGateAuth,
 };

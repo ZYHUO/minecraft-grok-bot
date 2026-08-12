@@ -2,13 +2,18 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const {
   AUTH_CHANNEL,
+  REG_CHANNEL,
   loadAuthConfig,
   isAuthConfigured,
   formatBearer,
   fetchAccessToken,
   sendAuth,
+  registerGateChannels,
+  requestReg,
+  parseRegChatFallback,
 } = require('./auth');
 
 test('formatBearer', () => {
@@ -93,11 +98,14 @@ test('legacy static token', async () => {
   assert.equal(tok.access_token, 'old');
 });
 
-test('sendAuth writes Bearer payload', () => {
+test('sendAuth writes Bearer payload and registers with custom=true', () => {
   const writes = [];
+  const regs = [];
   const bot = {
     _client: {
-      registerChannel() {},
+      registerChannel(name, typ, custom) {
+        regs.push({ name, typ, custom });
+      },
       writeChannel(ch, buf) {
         writes.push({ ch, text: buf.toString('utf8') });
       },
@@ -106,4 +114,58 @@ test('sendAuth writes Bearer payload', () => {
   sendAuth(bot, 'jwt-1');
   assert.equal(writes[0].ch, AUTH_CHANNEL);
   assert.equal(writes[0].text, 'Bearer jwt-1');
+  assert.ok(regs.some((r) => r.name === AUTH_CHANNEL && r.custom === true));
+  assert.ok(regs.some((r) => r.name === REG_CHANNEL && r.custom === true));
+});
+
+test('registerGateChannels uses custom=true for auth and reg', () => {
+  const regs = [];
+  const bot = {
+    _client: {
+      registerChannel(name, typ, custom) {
+        regs.push({ name, typ, custom });
+      },
+    },
+  };
+  const out = registerGateChannels(bot);
+  assert.deepEqual(out.channels, [AUTH_CHANNEL, REG_CHANNEL]);
+  assert.equal(regs.length, 2);
+  assert.ok(regs.every((r) => r.custom === true && Array.isArray(r.typ)));
+});
+
+test('parseRegChatFallback', () => {
+  assert.deepEqual(parseRegChatFallback('[grokbot:reg] {"code":"AB12"}'), { code: 'AB12' });
+  assert.equal(parseRegChatFallback('hello'), null);
+});
+
+test('requestReg receives plugin-channel JSON without chat', async () => {
+  const client = new EventEmitter();
+  const regs = [];
+  const writes = [];
+  client.registerChannel = (name, typ, custom) => {
+    regs.push({ name, custom });
+  };
+  client.writeChannel = (ch, buf) => {
+    writes.push({ ch, text: buf.toString('utf8') });
+    queueMicrotask(() => client.emit(REG_CHANNEL, Buffer.from('{"code":"ZX9"}', 'utf8')));
+  };
+  const bot = { _client: client };
+  const res = await requestReg(bot, { timeoutMs: 1000, chatFallback: false });
+  assert.equal(res.via, 'plugin');
+  assert.equal(res.payload.code, 'ZX9');
+  assert.equal(writes[0].ch, REG_CHANNEL);
+  assert.ok(regs.every((r) => r.custom === true));
+});
+
+test('requestReg can fall back to chat marker', async () => {
+  const client = new EventEmitter();
+  client.registerChannel = () => {};
+  client.writeChannel = () => {};
+  const bot = new EventEmitter();
+  bot._client = client;
+  const p = requestReg(bot, { timeoutMs: 1000, chatFallback: true });
+  queueMicrotask(() => bot.emit('chat', 'Server', '[grokbot:reg] {"code":"CHAT1"}'));
+  const res = await p;
+  assert.equal(res.via, 'chat');
+  assert.equal(res.payload.code, 'CHAT1');
 });

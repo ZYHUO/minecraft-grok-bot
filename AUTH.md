@@ -7,11 +7,30 @@
 1. `player-bot` 在 `connect` 前用户名已定（Mineflayer `username`）。
 2. `POST GROK_TOKEN_URL` 取票（或退回静态 `GROK_BOT_TOKEN`）。
 3. 进服默认 **SURVIVAL**。
-4. `spawn` 后立刻 plugin message：
+4. `login` 时客户端 `registerChannel(..., true)` 注册 `grokbot:auth` / `grokbot:reg`（发送 `minecraft:register`；缺 `custom=true` 时 Paper 不会投递 S→C）。
+5. `spawn` 后立刻 plugin message：
    - channel: `grokbot:auth`
-   - payload UTF-8: `Bearer <access_token>`
-5. 插件验 `iss/aud/exp/sub/jti`：`sub` 必须等于当前游戏名。
-6. 超时或失败 → **SPECTATOR**（无 tab 前缀）。
+   - payload UTF-8: `Bearer <access_token>`（`restBuffer`）
+6. 插件验 `iss/aud/exp/sub/jti`：`sub` 必须等于当前游戏名。
+7. 超时或失败 → **SPECTATOR**（无 tab 前缀）。
+
+## Plugin channels（客户端必读）
+
+| channel | 方向 | payload |
+|---------|------|---------|
+| `grokbot:auth` | C→S | raw UTF-8 `Bearer <token>` |
+| `grokbot:reg` | C↔S | raw UTF-8 JSON（`restBuffer`） |
+
+Mineflayer / minecraft-protocol 必须：
+
+```js
+client.registerChannel('grokbot:auth', ['restBuffer', []], true);
+client.registerChannel('grokbot:reg', ['restBuffer', []], true);
+```
+
+第三参 `custom=true` 才会发 `minecraft:register`。只调 `registerChannel(name, type)` 时库本地有类型定义，但 **Paper/Bukkit 不会把 S→C plugin message 交给未 REGISTER 的客户端**。
+
+`player-bot` 导出：`registerGateChannels(bot)`、`sendAuth(bot, token)`、`requestReg(bot)`（主路径等 `grokbot:reg` JSON；可选聊天回退 `[grokbot:reg] {...}` 给旧服）。
 
 ## Token 请求
 
