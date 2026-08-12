@@ -6,8 +6,9 @@
  * They never assign work to other bots.
  */
 
-const { isHostileName, isHuntableName, timeOfDay } = require('./mcdata');
+const { isHostileName, isFleeAlwaysName, timeOfDay } = require('./mcdata');
 const { findShelterLight, emote, blockLightLevel, isSpectator } = require('./presence');
+const combat = require('./combat');
 
 function rand() {
   return Math.random();
@@ -42,6 +43,7 @@ class ModeRunner {
     this._lastShelter = 0;
     this._holdingShelter = false;
     this._goal = null; // soft local goal string from Grok
+    this._combatAbort = null;
     this.enabled = true;
   }
 
@@ -74,6 +76,12 @@ class ModeRunner {
   stop() {
     if (this._timer) clearInterval(this._timer);
     this._timer = null;
+    try {
+      this._combatAbort?.abort();
+    } catch {
+      /* */
+    }
+    this._combatAbort = null;
   }
 
   async tick() {
@@ -280,30 +288,91 @@ class ModeRunner {
     const mob = this.nearestMob(bot, isHostileName, 16);
     if (!mob) return false;
     this.emit('mode', { name: 'cowardice', detail: mob.name });
+    this.sayReact(bot, `啊！${mob.name}！`);
+    try {
+      if (bot.entity.position.distanceTo(mob.position) < 3) {
+        await bot.lookAt(mob.position.offset(0, (mob.height || 1.6) * 0.7, 0), true);
+        await bot.attack(mob);
+      }
+    } catch {
+      /* */
+    }
     await this.fleeFrom(bot, mob, 20);
     return true;
+  }
+
+  sayReact(bot, text) {
+    if (!this.soul?.modes?.auto_chat_react) return;
+    try {
+      bot.chat(text);
+    } catch {
+      /* */
+    }
+  }
+
+  beginCombat() {
+    try {
+      this._combatAbort?.abort();
+    } catch {
+      /* */
+    }
+    const ac = new AbortController();
+    this._combatAbort = ac;
+    return ac;
   }
 
   async selfDefense(bot) {
     const mob = this.nearestMob(bot, isHostileName, 8);
     if (!mob) return false;
+    if (isFleeAlwaysName(mob.name)) {
+      this.emit('mode', { name: 'cowardice', detail: mob.name });
+      this.sayReact(bot, '那东西打不过，撤！');
+      await this.fleeFrom(bot, mob, 24);
+      return true;
+    }
     this.emit('mode', { name: 'self_defense', detail: mob.name });
+    this.sayReact(bot, `有${mob.name}！`);
     try {
-      await this.runAction({ type: 'attack', name: mob.name, entity_id: mob.id });
+      await this.abortJob('self_defense');
     } catch {
       /* */
+    }
+    const ac = this.beginCombat();
+    try {
+      await combat.defendArea(bot, this.config, {
+        range: 8,
+        signal: ac.signal,
+        timeoutMs: 60000,
+      });
+    } catch (e) {
+      if (e.code !== 'ABORTED') {
+        this.emit('mode', { name: 'self_defense', error: e.message });
+      }
+    } finally {
+      if (this._combatAbort === ac) this._combatAbort = null;
     }
     return true;
   }
 
   async hunting(bot) {
-    const mob = this.nearestMob(bot, isHuntableName, 12);
+    const mob = combat.findTarget(bot, { range: 12, prefer: 'huntable', skipBaby: true, skipNamed: true });
     if (!mob) return false;
     this.emit('mode', { name: 'hunting', detail: mob.name });
+    this.sayReact(bot, `这${mob.name}归我了`);
+    const ac = this.beginCombat();
     try {
-      await this.runAction({ type: 'attack', name: mob.name, entity_id: mob.id });
-    } catch {
-      /* */
+      await combat.huntEntity(bot, this.config, mob, {
+        signal: ac.signal,
+        shouldStop: () => this.isBusy(),
+        timeoutMs: 35000,
+      });
+      await combat.pickupDrops(bot, this.config, ac.signal, 8);
+    } catch (e) {
+      if (e.code !== 'ABORTED') {
+        this.emit('mode', { name: 'hunting', error: e.message });
+      }
+    } finally {
+      if (this._combatAbort === ac) this._combatAbort = null;
     }
     return true;
   }

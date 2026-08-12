@@ -48,6 +48,11 @@ func processAlive(pid int) bool {
 }
 
 func rootDir() string {
+	if packed() {
+		if home, err := ensurePackedHome(); err == nil && home != "" {
+			return home
+		}
+	}
 	exe, err := os.Executable()
 	if err == nil {
 		// if running from gbot/gbot binary under repo
@@ -180,7 +185,7 @@ func cmdSpawn(args []string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("node", argv...)
+	cmd := exec.Command(nodeExecutable(), argv...)
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	cmd.Dir = filepath.Join(root, "player-bot")
@@ -296,6 +301,25 @@ func parseDoLine(s string) map[string]interface{} {
 		return map[string]interface{}{"op": "say", "text": strings.Join(parts[1:], " ")}
 	case "goal":
 		return map[string]interface{}{"op": "goal", "text": strings.Join(parts[1:], " ")}
+	case "hunt", "kill", "fight":
+		m := map[string]interface{}{"op": "skill", "skill": "hunt"}
+		if len(parts) > 1 {
+			m["name"] = parts[1]
+		}
+		if len(parts) > 2 {
+			if n, err := strconv.Atoi(parts[2]); err == nil {
+				m["count"] = n
+			}
+		}
+		return m
+	case "defend":
+		m := map[string]interface{}{"op": "skill", "skill": "defend"}
+		if len(parts) > 1 {
+			if n, err := strconv.Atoi(parts[1]); err == nil {
+				m["range"] = n
+			}
+		}
+		return m
 	case "skill", "sk":
 		if len(parts) < 2 {
 			return map[string]interface{}{"op": "skill", "skill": "help"}
@@ -395,10 +419,22 @@ func parseDoLine(s string) map[string]interface{} {
 					m["block"] = parts[3]
 				}
 			}
-		case "go_to_block", "attack":
+		case "go_to_block", "attack", "hunt", "kill", "fight", "defend":
 			if len(parts) > 2 {
 				m["name"] = parts[2]
 				m["block"] = parts[2]
+			}
+			if (sk == "hunt" || sk == "kill" || sk == "fight") && len(parts) > 3 {
+				if n, err := strconv.Atoi(parts[3]); err == nil {
+					m["count"] = n
+				}
+			}
+			if sk == "defend" && len(parts) > 2 {
+				if n, err := strconv.Atoi(parts[2]); err == nil {
+					m["range"] = n
+					delete(m, "name")
+					delete(m, "block")
+				}
 			}
 		case "read_sign", "find_signs":
 			if len(parts) >= 5 {
@@ -585,7 +621,7 @@ func cmdAttach(args []string) error {
 	fmt.Println("  skill help | skill gather oak_log 8 | skill write_sign line1\\nline2")
 	fmt.Println("  skill remember_here home | skill go_place home | skill view_chest")
 	fmt.Println("  skill write_book hello | skill put_chest cobblestone 32 | goal ... | stop")
-	fmt.Println("  auth-status | skill go_find NAME")
+	fmt.Println("  auth-status | skill go_find NAME | hunt zombie | defend")
 	fmt.Println("empty line / ctrl+D to exit attach (body keeps running)")
 	sc := bufio.NewScanner(os.Stdin)
 	for {
@@ -626,6 +662,7 @@ func usage() {
   gbot cmd Andy 'say 有人一起挖矿吗'
   gbot cmd Andy 'go 10 64 0'
   gbot attach Andy
+  gbot home
 
 Env:
   GBOT_SOCKET          override socket path
@@ -636,7 +673,12 @@ Env:
   GROK_TOKEN_URL       OAuth token endpoint
   GROK_CLIENT_SECRET   per-bot secret (never pass on CLI)
   GROK_MC_AUDIENCE     JWT aud (default mc-paper-1.20.1)
+  GBOT_HOME            packed binary extract dir
+  NODE_BIN             override node path
 `)
+	if packed() {
+		fmt.Printf("\nPacked %s  home: %s\n", packVersion, packedHome())
+	}
 }
 
 func main() {
@@ -656,6 +698,17 @@ func main() {
 		err = cmdCmd(os.Args[2:])
 	case "attach":
 		err = cmdAttach(os.Args[2:])
+	case "home":
+		if packed() {
+			home, err := ensurePackedHome()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			fmt.Println(home)
+		} else {
+			fmt.Println(rootDir())
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:

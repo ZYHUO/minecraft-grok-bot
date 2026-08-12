@@ -30,6 +30,9 @@ shared/hub/channels/
 run/
 memory/
 gbot/gbot
+gbot/bundle.tar.gz
+.cache/
+dist/
 *.log
 .pid
 .DS_Store

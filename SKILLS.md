@@ -39,7 +39,9 @@ Or JSONL:
 | `follow` | player, duration_ms | |
 | `give` | player, item, count | approach + toss |
 | `equip` / `discard` / `consume` | item | |
-| `attack` | name/player | |
+| `attack` | name/player | one swing. `kill=true` → hunt |
+| **`hunt`** | name, count, range | walk in, melee until dead, pickup. creeper keeps 4–6 格 |
+| **`defend`** | range | clear hostiles in range (same loop as hunt) |
 | `sleep` | | nearest bed; `ok:false` / `BED_FAILED` if daytime or monsters |
 | `stay` | seconds | abortable via `stop` |
 | `place_here` | item, dx,dy,dz | |

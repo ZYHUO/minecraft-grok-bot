@@ -143,9 +143,10 @@
 
 - Mindcraft source: `attackEntity(..., kill=true)` 用 `bot.pvp.attack` 循环到实体消失再 `pickupNearbyItems`；`defendSelf` 对爬行者保持距离。依赖 `mineflayer-pvp`。
 - Why it fits: 狩猎/自卫是单体的。不要加「谁去清场」的指挥官。
-- What local is missing: `actions.js` `attack` 只 `bot.attack` 一下。无 pvp 插件。
+- What local is missing: ~~`attack` 只挥一下。~~ 已做 `hunt` / `defend`（无 pvp 插件）：走近、连砍、苦力怕拉开、换武器、打完捡。mode `self_defense` / `hunting` 走同一循环。
 - Suggested implementation sketch: skill `hunt {name}` 循环 attack+走近直到实体没了或 abort；完成后 `pickup`。先别上完整 pvp 插件也行。
 - Effort: M
+- Status: done (`player-bot/combat.js`)
 
 ### Idea 12 — `surface` 按柱扫描，别用海平面 62
 

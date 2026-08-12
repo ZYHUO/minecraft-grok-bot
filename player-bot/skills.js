@@ -9,6 +9,7 @@ const { Vec3 } = require('vec3');
 const { goals: { GoalNear } } = require('mineflayer-pathfinder');
 const { navigateTo, findItemByName, stopAll } = require('./actions');
 const mc = require('./mcdata');
+const combat = require('./combat');
 const coord = require('./coord');
 const presence = require('./presence');
 
@@ -709,6 +710,7 @@ async function consume(ctx, args) {
 async function attack(ctx, args) {
   const { bot, runAction } = ctx;
   ensureConnected(bot);
+  if (args.kill === true || args.kill === 'true') return hunt(ctx, args);
   if (args.player) {
     return runAction({ type: 'attack', player: args.player });
   }
@@ -716,6 +718,33 @@ async function attack(ctx, args) {
     return runAction({ type: 'attack', name: args.name || args.mob || args.entity });
   }
   return runAction({ type: 'attack' });
+}
+
+async function hunt(ctx, args) {
+  const { bot, config } = ctx;
+  ensureConnected(bot);
+  throwIfAborted(ctx);
+  const prefer = args.prefer || (args.name || args.player || args.entity_id ? 'named' : 'huntable');
+  return combat.hunt(bot, config, {
+    name: args.name || args.mob || args.entity,
+    player: args.player,
+    entity_id: args.entity_id,
+    count: args.count,
+    range: args.range || 24,
+    prefer,
+    signal: ctx.signal,
+  });
+}
+
+async function defend(ctx, args) {
+  const { bot, config } = ctx;
+  ensureConnected(bot);
+  throwIfAborted(ctx);
+  return combat.defendArea(bot, config, {
+    range: args.range || 10,
+    signal: ctx.signal,
+    timeoutMs: args.timeout_ms,
+  });
 }
 
 async function goToBed(ctx) {
@@ -1783,7 +1812,9 @@ const SKILL_DOCS = {
   equip: 'Equip item',
   discard: 'Toss item',
   consume: 'Eat/drink food',
-  attack: 'Attack player/mob/nearest',
+  attack: 'One swing at player/mob/nearest (kill=true → hunt)',
+  hunt: 'Chase and melee until dead; pickup drops. name/count/range',
+  defend: 'Clear nearby hostiles (creeper kite, then pickup)',
   sleep: 'Find bed and sleep',
   stay: 'Stand still N seconds',
   place_here: 'Place block near feet',
@@ -1921,6 +1952,11 @@ async function runSkill(name, ctxOrBot, runActionOrArgs, maybeArgs) {
     consume,
     eat: consume,
     attack,
+    hunt,
+    kill: hunt,
+    fight: hunt,
+    defend,
+    defend_self: defend,
     sleep: goToBed,
     go_to_bed: goToBed,
     stay,

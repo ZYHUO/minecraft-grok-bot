@@ -2,7 +2,7 @@
 
 /**
  * Modflared-compatible client for Mineflayer.
- * Fabric/Forge cannot load into Node. Same DNS TXT + local cloudflared access tcp.
+ * Fabric/Forge cannot load into Node. Same DNS TXT + in-process Access TCP (wss).
  */
 
 const dns = require('dns').promises;
@@ -100,6 +100,191 @@ function findCloudflared() {
   return process.env.CLOUDFLARED_BIN || 'cloudflared';
 }
 
+function accessHeaders() {
+  const h = { 'User-Agent': 'minecraft-grok-bot/modflared' };
+  const id = process.env.TUNNEL_SERVICE_TOKEN_ID || process.env.CF_ACCESS_CLIENT_ID;
+  const secret = process.env.TUNNEL_SERVICE_TOKEN_SECRET || process.env.CF_ACCESS_CLIENT_SECRET;
+  if (id) h['Cf-Access-Client-Id'] = id;
+  if (secret) h['Cf-Access-Client-Secret'] = secret;
+  return h;
+}
+
+function edgeWsUrl(hostname) {
+  return `wss://${hostname}/`;
+}
+
+function toBuf(data) {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  if (typeof data === 'string') return Buffer.from(data);
+  return Buffer.from(data);
+}
+
+function openEdgeSocket(hostname) {
+  if (typeof WebSocket !== 'function') {
+    const err = new Error('Node WebSocket missing (need Node 22+)');
+    err.code = 'TUNNEL';
+    throw err;
+  }
+  const ws = new WebSocket(edgeWsUrl(hostname), { headers: accessHeaders() });
+  return ws;
+}
+
+async function waitWsOpen(ws, timeoutMs) {
+  if (ws.readyState === 1) return;
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {
+        /* */
+      }
+      reject(new Error(`edge websocket timeout for ${timeoutMs}ms`));
+    }, timeoutMs);
+    const onOpen = () => {
+      clearTimeout(t);
+      resolve();
+    };
+    const onErr = (ev) => {
+      clearTimeout(t);
+      reject(ev?.error || new Error(ev?.message || 'edge websocket error'));
+    };
+    ws.addEventListener('open', onOpen, { once: true });
+    ws.addEventListener('error', onErr, { once: true });
+  });
+}
+
+function pipeTcpToWs(sock, ws) {
+  const flush = (data) => {
+    if (ws.readyState !== 1) return;
+    try {
+      const buf = toBuf(data);
+      ws.send(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    } catch {
+      /* */
+    }
+  };
+  sock.on('data', flush);
+  sock.on('end', () => {
+    try {
+      ws.close();
+    } catch {
+      /* */
+    }
+  });
+  sock.on('error', () => {
+    try {
+      ws.close();
+    } catch {
+      /* */
+    }
+  });
+  ws.addEventListener('message', (ev) => {
+    const p = ev.data;
+    if (p && typeof p.arrayBuffer === 'function' && !Buffer.isBuffer(p)) {
+      p.arrayBuffer().then((ab) => {
+        if (!sock.destroyed) sock.write(Buffer.from(ab));
+      }).catch(() => {});
+      return;
+    }
+    if (!sock.destroyed) sock.write(toBuf(p));
+  });
+  ws.addEventListener('close', () => {
+    try {
+      sock.end();
+    } catch {
+      /* */
+    }
+  });
+  ws.addEventListener('error', () => {
+    try {
+      sock.destroy();
+    } catch {
+      /* */
+    }
+  });
+}
+
+/**
+ * In-process Cloudflare Access TCP (same as `cloudflared access tcp`).
+ * Local TCP listen → one wss://hostname WebSocket per Minecraft connection.
+ */
+async function openEmbeddedTunnel(tunnelHost, localHost, localPort, opts) {
+  const log = opts.log || (() => {});
+  const probe = openEdgeSocket(tunnelHost);
+  try {
+    await waitWsOpen(probe, Number(opts.readyTimeoutMs || 20000));
+  } finally {
+    try {
+      probe.close();
+    } catch {
+      /* */
+    }
+  }
+  log('modflared: embedded access tcp', tunnelHost, '->', `${localHost}:${localPort}`);
+
+  const sockets = new Set();
+  const server = net.createServer((sock) => {
+    sockets.add(sock);
+    sock.on('close', () => sockets.delete(sock));
+    let ws;
+    try {
+      ws = openEdgeSocket(tunnelHost);
+    } catch (e) {
+      log('modflared: ws create failed', e.message);
+      sock.destroy();
+      return;
+    }
+    waitWsOpen(ws, Number(opts.readyTimeoutMs || 20000))
+      .then(() => pipeTcpToWs(sock, ws))
+      .catch((e) => {
+        log('modflared: edge ws failed', e.message);
+        try {
+          sock.destroy();
+        } catch {
+          /* */
+        }
+      });
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(localPort, localHost, resolve);
+  });
+
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    for (const s of sockets) {
+      try {
+        s.destroy();
+      } catch {
+        /* */
+      }
+    }
+    sockets.clear();
+    try {
+      server.close();
+    } catch {
+      /* */
+    }
+  };
+
+  return {
+    localHost,
+    localPort,
+    tunnelHost,
+    destHost: opts.destHost,
+    child: null,
+    stop,
+    get alive() {
+      return !stopped && server.listening;
+    },
+  };
+}
+
 /**
  * @returns {Promise<null | { localHost, localPort, tunnelHost, child, stop }>}
  */
@@ -128,6 +313,21 @@ async function openModflaredTunnel(opts) {
 
   const localPort = opts.localPort || (await freePort());
   const localHost = '127.0.0.1';
+  const backend = String(opts.backend || process.env.MC_TUNNEL_BACKEND || 'embedded').toLowerCase();
+  if (backend !== 'cloudflared' && backend !== 'cli') {
+    try {
+      return await openEmbeddedTunnel(tunnelHost, localHost, localPort, {
+        log,
+        destHost: dest.host,
+        readyTimeoutMs: opts.readyTimeoutMs,
+      });
+    } catch (e) {
+      const err = new Error(`Modflared tunnel failed for ${tunnelHost}: ${e.message}`);
+      err.code = 'TUNNEL';
+      throw err;
+    }
+  }
+
   const bin = findCloudflared();
   const args = [
     'access',
@@ -207,5 +407,7 @@ module.exports = {
   splitHostPort,
   parseTunnelTxt,
   lookupTunnelHostname,
+  accessHeaders,
+  edgeWsUrl,
   openModflaredTunnel,
 };

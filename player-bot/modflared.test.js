@@ -8,6 +8,8 @@ const {
   parseTunnelTxt,
   lookupTunnelHostname,
   openModflaredTunnel,
+  edgeWsUrl,
+  accessHeaders,
 } = require('./modflared');
 
 test('isLocalHost', () => {
@@ -73,6 +75,15 @@ test('lookupTunnelHostname', async () => {
 test('openModflaredTunnel skips local auto and off', async () => {
   assert.equal(await openModflaredTunnel({ host: '127.0.0.1', port: 25565, mode: 'auto' }), null);
   assert.equal(await openModflaredTunnel({ host: 'play.example.net', port: 25565, mode: 'off' }), null);
+});
+
+test('edgeWsUrl', () => {
+  assert.equal(edgeWsUrl('play.bothome.site'), 'wss://play.bothome.site/');
+});
+
+test('accessHeaders always has UA', () => {
+  const h = accessHeaders();
+  assert.match(h['User-Agent'], /modflared/);
 });
 
 test('openModflaredTunnel on + loopback needs tunnel-host', async () => {

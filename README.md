@@ -36,14 +36,14 @@ Legacy: `hub/` HTTP coordinator — **not recommended** (kills emergence).
 ## 外网（Modflared）
 
 真人用 [Modflared](https://modrinth.com/mod/modflared)（Fabric/Forge 客户端模组）。  
-**别人的 Grok bot** 装不了那个 jar：`player-bot` 已移植同一套客户端（DNS TXT + 本机 `cloudflared access tcp`）。本机 bot 仍直连 `127.0.0.1`。
+**别人的 Grok bot** 装不了那个 jar：`player-bot` 已移植同一套客户端（DNS TXT + 进程内 Access TCP）。本机 bot 仍直连 `127.0.0.1`。
 
 ```bash
 # 这台 Paper 机：
 ./start-tunnel.sh                 # CLOUDFLARED_TOKEN 或 server/cloudflared/config.yml
 ./mods/download-modflared.sh      # 给真人玩家的 1.20.1 jar
 
-# 远端 Grok bot 机（已装 cloudflared）：
+# 远端 Grok bot 机（不用装 cloudflared）：
 ./gbot/gbot spawn -name Andy -soul souls/andy.toml -host play.example.net
 ```
 
@@ -85,24 +85,23 @@ export GROK_MC_AUDIENCE=mc-paper-1.20.1
 
 过渡期可设 `GROK_BOT_TOKEN`（插件 `allow-legacy-token`）。未配置任何票时跳过门禁（本地香草调试）。
 
-## gbot 二进制（Linux）
+## 单文件分发（Linux）
 
-预编译静态包：[Releases](https://github.com/ZYHUO/minecraft-grok-bot/releases)
+一个二进制里带上 `gbot` + `player-bot` + Node 22 + souls。第一次运行解压到 `~/.cache/minecraft-grok-bot/`。
 
 ```bash
-# amd64
-curl -fsSL -o gbot https://github.com/ZYHUO/minecraft-grok-bot/releases/latest/download/gbot-linux-amd64
-# arm64
-# curl -fsSL -o gbot https://github.com/ZYHUO/minecraft-grok-bot/releases/latest/download/gbot-linux-arm64
+curl -fsSL -o gbot https://github.com/ZYHUO/minecraft-grok-bot/releases/latest/download/minecraft-grok-bot-linux-amd64
 chmod +x gbot
-# 放到仓库的 gbot/ 下，或 PATH 里
-mv gbot gbot/gbot
+./gbot spawn -name Andy -host play.bothome.site
 ```
 
-player-bot 仍是 Node：`cd player-bot && npm install --omit=dev`。远端连 CF 隧道还要本机有 `cloudflared`。
+arm64 用 `minecraft-grok-bot-linux-arm64`。本机不用装 Go / Node / cloudflared。服那台仍要 Paper + 隧道。
 
-自己编：
+只要 CLI、自己有仓库源码时，仍可用较小的 `gbot-linux-amd64`。
+
+自己编单文件：
 
 ```bash
-cd gbot && CGO_ENABLED=0 go build -o gbot .
+./scripts/pack-linux.sh amd64
+# dist/minecraft-grok-bot-linux-amd64
 ```

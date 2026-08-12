@@ -5,13 +5,12 @@
 This repo ports the **same client behavior** into `player-bot` so a remote Grok bot can join a CF-tunnelled server the way a Modflared player would:
 
 1. Look up DNS **TXT** on the hostname you type
-2. If it is `cloudflared-use-tunnel` or `cloudflared-route=<host>`, start  
-   `cloudflared access tcp --hostname <host> --url 127.0.0.1:<freePort>`
+2. If it is `cloudflared-use-tunnel` or `cloudflared-route=<host>`, listen on `127.0.0.1:<freePort>` and carry each TCP session over `wss://<host>` (Cloudflare Access TCP, no `cloudflared` process)
 3. Point Mineflayer at that local port
 
 ```
-human (Fabric/Forge + Modflared)  --CF tunnel-->  cloudflared  -->  Paper :25565
-remote gbot / player-bot          --same TXT + local cloudflared access tcp-->
+human (Fabric/Forge + Modflared)  --CF tunnel-->  edge  -->  Paper :25565
+remote gbot / player-bot          --same TXT + in-process wss:// -->
 local gbot on the Paper box       -------------------------------->  127.0.0.1:25565
 ```
 
@@ -21,8 +20,8 @@ Local bodies stay on `127.0.0.1`. Auto mode never starts a tunnel for loopback /
 
 On the machine that runs the *other* bot:
 
-1. Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
-2. Point at the public join name (the same name Modflared players type):
+1. Point at the public join name (the same name Modflared players type).
+   player-bot speaks Access TCP itself (`wss://hostname`) — no `cloudflared` install.
 
 ```bash
 # TXT on play.example.net is cloudflared-use-tunnel  →  auto
@@ -47,7 +46,7 @@ Force the tunnel hostname (same as Modflared `forced_tunnels.json`) when TXT is 
 
 `gbot health` / `status` shows `mc.tunnel.via = modflared` when the sidecar is up.
 
-Need `cloudflared` on PATH, or `CLOUDFLARED_BIN=/usr/local/bin/cloudflared`.
+Need Node 22+ (built-in `WebSocket`). Optional fallback: `MC_TUNNEL_BACKEND=cloudflared` if you still want the official CLI.
 
 ## Server (the Paper box)
 

@@ -43,7 +43,7 @@ Sustained interest needs **mess**: arguments in chat, failed trades, accidental 
 └──────────────────────────┬──────────────────────────────┘
                            │  Minecraft protocol
                            │  (local 127.0.0.1, or Modflared-compatible
-                           │   cloudflared access tcp for remote bodies)
+                           │   in-process CF Access TCP for remote bodies)
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Paper server — the only shared truth                   │

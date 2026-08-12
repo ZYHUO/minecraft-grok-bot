@@ -7,9 +7,14 @@ const HOSTILES = new Set([
   'drowned', 'husk', 'stray', 'phantom', 'pillager', 'vindicator',
   'ravager', 'blaze', 'ghast', 'magma_cube', 'slime', 'warden',
   'zoglin', 'hoglin', 'piglin_brute', 'cave_spider', 'guardian',
+  'elder_guardian', 'wither', 'evoker', 'vex', 'illusioner', 'shulker',
+  'wither_skeleton', 'piglin', 'endermite', 'silverfish',
 ]);
 
-const HUNTABLE = new Set(['chicken', 'cow', 'pig', 'sheep', 'rabbit']);
+const HUNTABLE = new Set(['chicken', 'cow', 'llama', 'mooshroom', 'pig', 'rabbit', 'sheep']);
+
+/** Too dangerous to auto-melee. Modes flee even if self_defense is on. */
+const FLEE_ALWAYS = new Set(['warden', 'wither']);
 
 const MANUAL_FULL = new Set([
   'wheat', 'carrots', 'potatoes', 'beetroots', 'nether_wart', 'cocoa',
@@ -112,6 +117,10 @@ function isHostileName(name) {
 
 function isHuntableName(name) {
   return HUNTABLE.has(String(name || '').toLowerCase());
+}
+
+function isFleeAlwaysName(name) {
+  return FLEE_ALWAYS.has(String(name || '').toLowerCase());
 }
 
 function villagerProfession(entity) {
@@ -334,6 +343,7 @@ function seedName(name) {
 module.exports = {
   HOSTILES,
   HUNTABLE,
+  FLEE_ALWAYS,
   mustCollectManually,
   expandBlockAlias,
   isSmeltable,
@@ -342,6 +352,7 @@ module.exports = {
   emptySlotCount,
   isHostileName,
   isHuntableName,
+  isFleeAlwaysName,
   villagerProfession,
   timeOfDay,
   weatherOf,
