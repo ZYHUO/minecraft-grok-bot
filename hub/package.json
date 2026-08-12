@@ -1,0 +1,10 @@
+{
+  "name": "grok-minecraft-hub",
+  "version": "1.0.0",
+  "private": true,
+  "main": "hub.js",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

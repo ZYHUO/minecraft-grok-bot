@@ -1,0 +1,5 @@
+{
+  "order": "mine_east",
+  "by": "Builder1",
+  "note": "Optional multi-bot blackboard. Copy to orders.json and update from any Grok Bot."
+}

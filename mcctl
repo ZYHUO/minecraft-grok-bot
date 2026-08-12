@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# mcctl — CLI for Grok Bots (wraps Control Hub). Prefer this over raw multi-port curl.
+#
+# Identity: export GROK_AGENT=Miner1   (or pass --agent)
+# Hub:      export HUB=http://127.0.0.1:3100
+#
+set -euo pipefail
+
+HUB="${HUB:-http://127.0.0.1:3100}"
+AGENT="${GROK_AGENT:-${AGENT:-}}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+mcctl — Grok Minecraft team CLI (talks to Control Hub :3100)
+
+Setup:
+  export GROK_AGENT=Miner1          # your identity (required for me/* and mail)
+  export HUB=http://127.0.0.1:3100
+
+Commands:
+  mcctl health
+  mcctl register <agent_id> <player> <port> [role]
+  mcctl agents
+  mcctl heartbeat
+
+  mcctl status [player]             # default: my bound player
+  mcctl team                        # all players slim status
+  mcctl action [player] '<json>'    # or: mcctl action '{"type":"chat",...}'
+  mcctl stop [player]
+  mcctl job [player]
+
+  mcctl say <to_agent|all> <text>   # direct mail
+  mcctl shout <channel> <text>      # channel publish
+  mcctl inbox [since]               # read my mail (seq cursor)
+  mcctl ack <id> [id...]
+
+  mcctl board                       # full blackboard
+  mcctl board-get <key>
+  mcctl board-set <key> <json_value>
+  mcctl board-del <key>
+
+  mcctl events [since]
+  mcctl watch-events                # tail shared/hub/events.ndjson
+  mcctl watch-inbox                 # poll inbox every 2s
+
+Examples (20-bot team):
+  mcctl register chief Chief1 3001 chief
+  mcctl register miner1 Miner1 3002 miner
+  GROK_AGENT=chief mcctl shout ops "mine east at x=100"
+  GROK_AGENT=miner1 mcctl inbox
+  GROK_AGENT=miner1 mcctl board-set claim.east '{"by":"miner1","pos":[100,64,0]}'
+  GROK_AGENT=miner1 mcctl action '{"type":"move_to","x":100,"y":64,"z":0}'
+EOF
+}
+
+hdr_agent() {
+  if [[ -n "$AGENT" ]]; then
+    echo -n "-H" $'X-Agent-Id: '"$AGENT"
+  fi
+}
+
+# curl helper
+jcurl() {
+  local method="$1"; shift
+  local path="$1"; shift
+  local args=(-sS -X "$method" "${HUB}${path}")
+  if [[ -n "$AGENT" ]]; then
+    args+=(-H "X-Agent-Id: $AGENT")
+  fi
+  # remaining: optional -d data etc passed by caller via extra args after --
+  curl "${args[@]}" "$@"
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  ""|-h|--help|help) usage; exit 0 ;;
+
+  health)
+    curl -sS "${HUB}/health" | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  register)
+    aid="${1:?agent_id}"; player="${2:?player}"; port="${3:?port}"; role="${4:-worker}"
+    curl -sS -X POST "${HUB}/agents/register" \
+      -H 'Content-Type: application/json' \
+      -d "{\"agent_id\":\"$aid\",\"player\":\"$player\",\"port\":$port,\"role\":\"$role\"}" \
+      | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  agents)
+    curl -sS "${HUB}/agents" | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  heartbeat)
+    [[ -n "$AGENT" ]] || { echo "set GROK_AGENT"; exit 1; }
+    curl -sS -X POST "${HUB}/agents/heartbeat" -H "X-Agent-Id: $AGENT" \
+      | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  status)
+    if [[ -n "${1:-}" ]]; then
+      curl -sS "${HUB}/players/${1}/status" | { command -v jq >/dev/null && jq . || cat; }
+    else
+      [[ -n "$AGENT" ]] || { echo "set GROK_AGENT or pass player name"; exit 1; }
+      curl -sS "${HUB}/me/status" -H "X-Agent-Id: $AGENT" | { command -v jq >/dev/null && jq . || cat; }
+    fi
+    ;;
+
+  team)
+    curl -sS "${HUB}/team/status" | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  action)
+    # mcctl action '{"type":"chat","message":"hi"}'
+    # mcctl action Miner1 '{"type":"chat","message":"hi"}'
+    if [[ "${1:-}" == \{* ]]; then
+      body="$1"
+      [[ -n "$AGENT" ]] || { echo "set GROK_AGENT"; exit 1; }
+      curl -sS -X POST "${HUB}/me/action" -H "X-Agent-Id: $AGENT" -H 'Content-Type: application/json' -d "$body" \
+        | { command -v jq >/dev/null && jq . || cat; }
+    else
+      player="${1:?player or json}"; body="${2:?json body}"
+      args=(-sS -X POST "${HUB}/players/${player}/action" -H 'Content-Type: application/json' -d "$body")
+      [[ -n "$AGENT" ]] && args+=(-H "X-Agent-Id: $AGENT")
+      curl "${args[@]}" | { command -v jq >/dev/null && jq . || cat; }
+    fi
+    ;;
+
+  stop)
+    if [[ -n "${1:-}" ]]; then
+      curl -sS -X POST "${HUB}/players/${1}/stop" | { command -v jq >/dev/null && jq . || cat; }
+    else
+      [[ -n "$AGENT" ]] || { echo "set GROK_AGENT"; exit 1; }
+      curl -sS -X POST "${HUB}/me/stop" -H "X-Agent-Id: $AGENT" | { command -v jq >/dev/null && jq . || cat; }
+    fi
+    ;;
+
+  job)
+    if [[ -n "${1:-}" ]]; then
+      curl -sS "${HUB}/players/${1}/job" | { command -v jq >/dev/null && jq . || cat; }
+    else
+      # fall back to status.job via me
+      [[ -n "$AGENT" ]] || { echo "set GROK_AGENT or player"; exit 1; }
+      curl -sS "${HUB}/me/status" -H "X-Agent-Id: $AGENT" | { command -v jq >/dev/null && jq '.job' || cat; }
+    fi
+    ;;
+
+  say)
+    to="${1:?to agent or all}"; shift
+    text="$*"
+    [[ -n "$text" ]] || { echo "message required"; exit 1; }
+    from="${AGENT:-anonymous}"
+    payload=$(GROK_FROM="$from" GROK_TO="$to" GROK_BODY="$text" python3 - <<'PY'
+import json, os
+print(json.dumps({
+  "from": os.environ["GROK_FROM"],
+  "to": os.environ["GROK_TO"],
+  "body": os.environ["GROK_BODY"],
+  "type": "chat",
+}))
+PY
+)
+    curl -sS -X POST "${HUB}/mail/send" -H 'Content-Type: application/json' -d "$payload" \
+      | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  shout)
+    ch="${1:?channel}"; shift
+    text="$*"
+    from="${AGENT:-anonymous}"
+    payload=$(GROK_FROM="$from" GROK_BODY="$text" python3 - <<'PY'
+import json, os
+print(json.dumps({
+  "from": os.environ["GROK_FROM"],
+  "body": os.environ["GROK_BODY"],
+}))
+PY
+)
+    curl -sS -X POST "${HUB}/channels/${ch}/publish" -H 'Content-Type: application/json' \
+      -H "X-Agent-Id: $from" -d "$payload" \
+      | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  inbox)
+    [[ -n "$AGENT" ]] || { echo "set GROK_AGENT"; exit 1; }
+    since="${1:-0}"
+    curl -sS "${HUB}/mail/inbox?since=${since}&unacked=1" -H "X-Agent-Id: $AGENT" \
+      | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  ack)
+    [[ -n "$AGENT" ]] || { echo "set GROK_AGENT"; exit 1; }
+    ids=$(printf '%s\n' "$@" | jq -R . | jq -s . 2>/dev/null || echo "[]")
+    if command -v jq >/dev/null; then
+      payload=$(jq -nc --arg a "$AGENT" --args '{$a, ids:$ARGS.positional}' "$@")
+    else
+      payload="{\"agent\":\"$AGENT\",\"ids\":[$(printf '"%s",' "$@" | sed 's/,$//')]}"
+    fi
+    curl -sS -X POST "${HUB}/mail/ack" -H 'Content-Type: application/json' -d "$payload" \
+      | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  board)
+    curl -sS "${HUB}/board" | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  board-get)
+    curl -sS "${HUB}/board/${1:?key}" | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  board-set)
+    key="${1:?key}"; shift
+    val="$*"
+    [[ -n "$val" ]] || { echo "value required (JSON)"; exit 1; }
+    # if value isn't JSON object/array/number, wrap as string
+    if ! echo "$val" | jq . >/dev/null 2>&1; then
+      val=$(jq -nc --arg v "$val" '$v')
+    fi
+    by="${AGENT:-unknown}"
+    curl -sS -X PUT "${HUB}/board/${key}" -H 'Content-Type: application/json' \
+      -d "{\"value\":${val},\"by\":\"${by}\"}" \
+      | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  board-del)
+    curl -sS -X DELETE "${HUB}/board/${1:?key}" | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  events)
+    curl -sS "${HUB}/events?since=${1:-0}" | { command -v jq >/dev/null && jq . || cat; }
+    ;;
+
+  watch-events)
+    f="$ROOT/shared/hub/events.ndjson"
+    mkdir -p "$(dirname "$f")"
+    touch "$f"
+    echo "tail -f $f  (Ctrl+C stop)"
+    tail -n 20 -f "$f"
+    ;;
+
+  watch-inbox)
+    [[ -n "$AGENT" ]] || { echo "set GROK_AGENT"; exit 1; }
+    since=0
+    while true; do
+      resp=$(curl -sS "${HUB}/mail/inbox?since=${since}" -H "X-Agent-Id: $AGENT")
+      echo "$resp" | { command -v jq >/dev/null && jq -c '.items[]?' || cat; }
+      since=$(echo "$resp" | jq -r '.next_since // 0' 2>/dev/null || echo "$since")
+      sleep 2
+    done
+    ;;
+
+  *)
+    echo "Unknown command: $cmd"
+    usage
+    exit 1
+    ;;
+esac

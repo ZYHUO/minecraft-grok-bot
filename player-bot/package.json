@@ -1,0 +1,23 @@
+{
+  "name": "grok-minecraft-player-bot",
+  "version": "1.0.0",
+  "description": "Lightweight Mineflayer HTTP control API for Grok Bot multi-player Minecraft",
+  "main": "player-bot.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node player-bot.js",
+    "player": "node player-bot.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "mineflayer": "^4.27.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-collectblock": "^1.6.0",
+    "mineflayer-tool": "^1.2.0",
+    "mineflayer-auto-eat": "^3.3.6",
+    "vec3": "^0.1.10"
+  },
+  "private": true
+}
