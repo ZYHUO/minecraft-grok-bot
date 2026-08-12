@@ -1,0 +1,18 @@
+# Copy to config.yml (gitignored). Point a Cloudflare Tunnel at Paper.
+# Docs: MODFLARED.md
+#
+# tunnel: <tunnel-id>
+# credentials-file: /root/.cloudflared/<tunnel-id>.json
+#
+# ingress:
+#   - hostname: play.example.net
+#     service: tcp://127.0.0.1:25565
+#   - service: http_status:404
+
+tunnel: REPLACE_TUNNEL_ID
+credentials-file: /root/.cloudflared/REPLACE_TUNNEL_ID.json
+
+ingress:
+  - hostname: play.example.net
+    service: tcp://127.0.0.1:25565
+  - service: http_status:404

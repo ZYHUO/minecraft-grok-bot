@@ -36,3 +36,7 @@ gbot/gbot
 .env
 .env.*
 !.env.example
+server/cloudflared/config.yml
+server/cloudflared/*.json
+mods/*.jar
+logs/cloudflared.log

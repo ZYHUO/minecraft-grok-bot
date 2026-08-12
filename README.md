@@ -33,6 +33,17 @@ Andy> events
 
 Legacy: `hub/` HTTP coordinator — **not recommended** (kills emergence).
 
+## 外网（Modflared）
+
+真人要用 [Modflared](https://modrinth.com/mod/modflared) 走 Cloudflare 隧道。这是**客户端模组**，不能丢进 Paper。本机 bot 仍连 `127.0.0.1`。
+
+```bash
+./start-tunnel.sh                 # 需要 CLOUDFLARED_TOKEN 或 server/cloudflared/config.yml
+./mods/download-modflared.sh      # 下载 1.20.1 Fabric/Forge 给玩家
+```
+
+DNS TXT：`cloudflared-use-tunnel`。细节见 [MODFLARED.md](./MODFLARED.md)。
+
 ## Docs
 
 - `ARCHITECTURE.md` — design
@@ -41,6 +52,7 @@ Legacy: `hub/` HTTP coordinator — **not recommended** (kills emergence).
 - `CODE-REVIEW-SKILLS.md` — earlier skills review
 - `MINDCRAFT-BORROW.md` — what to take from Mindcraft next
 - `AUTH.md` — GrokBotGate JWT / plugin-message contract
+- `MODFLARED.md` — Cloudflare tunnel + client Modflared
 - `README-GrokBot.md` — older HTTP notes (legacy)
 
 ## 专用服门禁（GrokBotGate）
