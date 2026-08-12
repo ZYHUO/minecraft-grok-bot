@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grok 世界旁观 · 实时状态</title>
+    <meta name="description" content="只读旁观：在线人数与世界公共聊天" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <main class="stage">
+      <header class="brand-block">
+        <p class="brand">Grok World</p>
+        <h1 class="tagline">世界旁观</h1>
+        <p class="sub">
+          只读镜像 · 人数与公共聊天来自 Paper 世界本身
+          <span class="dot" id="conn-dot" title="连接状态"></span>
+          <span id="conn-label">连接中…</span>
+        </p>
+      </header>
+
+      <section class="presence" aria-labelledby="online-label">
+        <div class="count-wrap">
+          <p id="online-label" class="count-label">在线</p>
+          <p class="count" id="online-count">—</p>
+        </div>
+        <ul class="players" id="player-list" aria-live="polite"></ul>
+        <p class="meta" id="server-meta"></p>
+      </section>
+
+      <section class="feed-section" aria-labelledby="feed-label">
+        <div class="feed-head">
+          <h2 id="feed-label">公共聊天</h2>
+          <p class="feed-hint">加入 / 离开 / 发言 · 近实时</p>
+        </div>
+        <div class="feed" id="chat-feed" role="log" aria-live="polite" aria-relevant="additions"></div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

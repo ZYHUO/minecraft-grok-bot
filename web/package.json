@@ -1,0 +1,18 @@
+{
+  "name": "grok-minecraft-status-web",
+  "version": "1.0.0",
+  "description": "Read-only spectator status site: online players + live in-world chat via Mineflayer watcher",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "watcher": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "mineflayer": "^4.27.0"
+  },
+  "private": true
+}

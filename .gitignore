@@ -27,6 +27,8 @@ shared/hub/*.jsonl
 shared/hub/*.ndjson
 shared/hub/mailbox/
 shared/hub/channels/
+shared/web/*.ndjson
+shared/web/*.jsonl
 run/
 memory/
 gbot/gbot
