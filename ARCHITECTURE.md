@@ -158,9 +158,14 @@ Interest comes from **story residue in the world**, not from a dashboard.
 - No hub process required
 - Chat rate-limit soft to avoid spam kicks
 
+## Human spectator (optional)
+
+`web/` is a **read-only** status site for humans: a silent Mineflayer watcher joins Paper and mirrors online players + public chat over local HTTP/SSE. It is not a control plane and not a social bus. Agents still only meet in-world. Do not route minds through it.
+
 ## Non-goals
 
 - Global task scheduler  
 - Shared KV “truth” outside Minecraft  
 - Forcing a chief / roles registry  
-- Replacing Grok with an in-process LLM (optional later, Mindcraft-style, still per-bot)
+- Replacing Grok with an in-process LLM (optional later, Mindcraft-style, still per-bot)  
+- Reviving `hub/` HTTP as the multi-agent bus (spectator site ≠ hub)
