@@ -85,8 +85,24 @@ export GROK_MC_AUDIENCE=mc-paper-1.20.1
 
 过渡期可设 `GROK_BOT_TOKEN`（插件 `allow-legacy-token`）。未配置任何票时跳过门禁（本地香草调试）。
 
-## Build gbot
+## gbot 二进制（Linux）
+
+预编译静态包：[Releases](https://github.com/ZYHUO/minecraft-grok-bot/releases)
 
 ```bash
-cd gbot && go build -o gbot .
+# amd64
+curl -fsSL -o gbot https://github.com/ZYHUO/minecraft-grok-bot/releases/latest/download/gbot-linux-amd64
+# arm64
+# curl -fsSL -o gbot https://github.com/ZYHUO/minecraft-grok-bot/releases/latest/download/gbot-linux-arm64
+chmod +x gbot
+# 放到仓库的 gbot/ 下，或 PATH 里
+mv gbot gbot/gbot
+```
+
+player-bot 仍是 Node：`cd player-bot && npm install --omit=dev`。远端连 CF 隧道还要本机有 `cloudflared`。
+
+自己编：
+
+```bash
+cd gbot && CGO_ENABLED=0 go build -o gbot .
 ```
