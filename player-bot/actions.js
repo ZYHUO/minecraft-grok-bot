@@ -6,6 +6,7 @@ const {
   Movements,
 } = require('mineflayer-pathfinder');
 const { isSpectator } = require('./presence');
+const mc = require('./mcdata');
 
 /**
  * Action executor for Mineflayer.
@@ -34,6 +35,50 @@ function vecFromBody(body) {
 /**
  * Exact name first; then unique partial match. Ambiguous partial → error.
  */
+function craftFailMessage(bot, itemName, recipe) {
+  if (!recipe) {
+    const planks = (bot.inventory?.items() || []).filter((i) => mc.isPlankName(i.name));
+    if (itemName === 'crafting_table' && planks.length) {
+      const by = {};
+      for (const p of planks) by[p.name] = (by[p.name] || 0) + p.count;
+      const parts = Object.entries(by).map(([k, v]) => `${k}:${v}`);
+      return `Need 4 of the same plank for ${itemName} (have ${parts.join(', ')})`;
+    }
+    return `No recipe or missing ingredients for ${itemName}`;
+  }
+  const bits = [];
+  for (const d of recipe.delta || []) {
+    if (!d || d.count >= 0) continue;
+    const name = bot.registry?.items?.[d.id]?.name || String(d.id);
+    const have = bot.inventory.count(d.id, d.metadata);
+    if (have < -d.count) bits.push(`${name} ${have}/${-d.count}`);
+  }
+  if (bits.length) return `Missing ingredients for ${itemName}: ${bits.join(', ')}`;
+  return `No recipe or missing ingredients for ${itemName}`;
+}
+
+async function salvageCraftGrid(bot) {
+  const win = bot.currentWindow || bot.inventory;
+  if (!win?.slots) return;
+  const crafting = win !== bot.inventory && /craft/i.test(String(win.type || ''));
+  const last = crafting ? 9 : 4;
+  for (let s = 1; s <= last; s++) {
+    if (!win.slots[s]) continue;
+    try {
+      await bot.putAway(s);
+    } catch {
+      /* */
+    }
+  }
+  if (crafting) {
+    try {
+      bot.closeWindow(win);
+    } catch {
+      /* */
+    }
+  }
+}
+
 function findItemByName(bot, name) {
   if (!name) return null;
   const lower = String(name).toLowerCase();
@@ -609,18 +654,18 @@ async function executeAction(bot, config, body, signal) {
     }
 
     case 'craft': {
-      const itemName = body.item || body.name;
-      const count = body.count !== undefined ? num(body.count, 'count') : 1;
-      if (!itemName) {
+      const rawName = body.item || body.name;
+      const wantCount = body.count !== undefined ? num(body.count, 'count') : 1;
+      if (!rawName) {
         const err = new Error('craft requires item');
         err.code = 'BAD_ARGS';
         throw err;
       }
 
-      const mcData = require('minecraft-data')(bot.version);
-      const item = mcData.itemsByName[String(itemName).toLowerCase()];
+      const itemName = mc.resolveItemName(bot, rawName);
+      const item = bot.registry?.itemsByName?.[itemName];
       if (!item) {
-        const err = new Error(`Unknown item: ${itemName}`);
+        const err = new Error(`Unknown item: ${rawName}`);
         err.code = 'BAD_ARGS';
         throw err;
       }
@@ -631,33 +676,62 @@ async function executeAction(bot, config, body, signal) {
           : config.craftTimeoutMs;
 
       const doCraft = async () => {
-        const recipes = bot.recipesFor(item.id, null, 1, null);
-        let recipe = recipes.find((r) => r.requiresTable === false) || recipes[0];
-
-        if (!recipe) {
-          const table = bot.findBlock({
-            matching: mcData.blocksByName.crafting_table?.id,
-            maxDistance: 4,
-          });
-          const recipesWithTable = bot.recipesFor(item.id, null, 1, table || true);
-          recipe = recipesWithTable[0];
-          if (!recipe) {
-            const err = new Error(`No recipe or missing ingredients for ${itemName}`);
-            err.code = 'NOT_FOUND';
-            throw err;
-          }
-          await bot.craft(recipe, count, table || null);
-        } else {
-          await bot.craft(recipe, count, null);
+        let table = null;
+        if (body.table_x !== undefined) {
+          table = bot.blockAt({ x: Number(body.table_x), y: Number(body.table_y), z: Number(body.table_z) });
+          if (table && table.name !== 'crafting_table') table = null;
         }
+        if (!table) {
+          table = bot.findBlock({
+            matching: (b) => b && b.name === 'crafting_table',
+            maxDistance: 16,
+          });
+        }
+
+        const twoByTwo = bot.recipesFor(item.id, null, 1, null) || [];
+        let recipe = twoByTwo.find((r) => !r.requiresTable) || twoByTwo[0] || null;
+        if (!recipe && table) {
+          recipe = (bot.recipesFor(item.id, null, 1, table) || [])[0] || null;
+        }
+        if (!recipe) {
+          const all = bot.recipesAll?.(item.id, null, true) || [];
+          const err = new Error(craftFailMessage(bot, itemName, all[0]));
+          err.code = 'NOT_FOUND';
+          throw err;
+        }
+        if (recipe.requiresTable && !table) {
+          const err = new Error(`Need a crafting_table nearby to craft ${itemName}`);
+          err.code = 'NOT_FOUND';
+          throw err;
+        }
+
+        const per = recipe.result?.count || 1;
+        let times = mc.craftBatches(wantCount, per);
+        const cap = mc.maxCrafts(bot, recipe);
+        if (cap <= 0) {
+          const err = new Error(craftFailMessage(bot, itemName, recipe));
+          err.code = 'NOT_FOUND';
+          throw err;
+        }
+        if (times > cap) times = cap;
+
+        try {
+          await bot.craft(recipe, times, recipe.requiresTable ? table : null);
+        } catch (e) {
+          await salvageCraftGrid(bot);
+          const err = new Error(e.message || String(e));
+          err.code = /missing ingredient/i.test(String(e.message || e)) ? 'NOT_FOUND' : 'ERROR';
+          throw err;
+        }
+        return { item: item.name, crafted: times * per, wanted: wantCount, times };
       };
 
-      await withAbortAndTimeout(doCraft(), signal, timeout, 'craft');
+      const result = await withAbortAndTimeout(doCraft(), signal, timeout, 'craft');
 
       return {
         ok: true,
-        message: 'crafted',
-        result: { item: item.name, count },
+        message: result.crafted >= wantCount ? 'crafted' : 'crafted_partial',
+        result,
       };
     }
 

@@ -289,23 +289,57 @@ async function ensureCraftingTable(ctx) {
   return { table: table && table.name === 'crafting_table' ? table : nearestBlock(bot, 'crafting_table', 6), placed: true };
 }
 
+async function craftPlanksFromLogs(ctx) {
+  const { bot, runAction } = ctx;
+  const wood = (bot.inventory?.items() || []).filter((i) => mc.isLogName(i.name));
+  if (!wood.length) return false;
+  const plankNames = Object.keys(bot.registry?.itemsByName || {}).filter((n) => mc.isPlankName(n));
+  for (const name of plankNames) {
+    const id = bot.registry.itemsByName[name].id;
+    const recs = bot.recipesFor(id, null, 1, null) || [];
+    if (!recs.length) continue;
+    await runAction({ type: 'craft', item: name, count: 4 });
+    return true;
+  }
+  return false;
+}
+
 async function craft(ctx, args) {
   const { bot, runAction } = ctx;
   ensureConnected(bot);
-  const item = args.item || args.name;
+  const raw = args.item || args.name;
   const count = Number(args.count || 1);
-  if (!item) fail('craft requires item', 'BAD_ARGS');
-  const id = bot.registry?.itemsByName?.[String(item).toLowerCase()]?.id;
-  if (id == null) fail(`Unknown item: ${item}`, 'BAD_ARGS');
-  const twoByTwo = bot.recipesFor(id, null, 1, null) || [];
+  if (!raw) fail('craft requires item', 'BAD_ARGS');
+  const item = mc.resolveItemName(bot, raw);
+  const id = bot.registry?.itemsByName?.[item]?.id;
+  if (id == null) fail(`Unknown item: ${raw}`, 'BAD_ARGS');
+
+  let twoByTwo = bot.recipesFor(id, null, 1, null) || [];
+  if (!twoByTwo.length && item === 'crafting_table') {
+    await craftPlanksFromLogs(ctx);
+    twoByTwo = bot.recipesFor(id, null, 1, null) || [];
+  }
+
+  let tablePos = null;
   if (!twoByTwo.length) {
     const { table } = await ensureCraftingTable(ctx);
-    if (!table) {
-      const withTable = bot.recipesFor(id, null, 1, true) || [];
-      if (withTable.length) fail('Need a crafting_table nearby or in inventory', 'NOT_FOUND');
+    if (table) {
+      tablePos = table.position;
+    } else {
+      const withTable = bot.recipesAll?.(id, null, true) || [];
+      if (withTable.some((r) => r.requiresTable)) {
+        fail('Need a crafting_table nearby or in inventory', 'NOT_FOUND');
+      }
     }
   }
-  return runAction({ type: 'craft', item, count });
+
+  const body = { type: 'craft', item, count };
+  if (tablePos) {
+    body.table_x = tablePos.x;
+    body.table_y = tablePos.y;
+    body.table_z = tablePos.z;
+  }
+  return runAction(body);
 }
 
 async function goTo(ctx, args) {
@@ -1321,7 +1355,7 @@ async function craftable(ctx) {
 async function craftPlan(ctx, args) {
   const { bot } = ctx;
   ensureConnected(bot);
-  const item = args.item || args.name;
+  const item = mc.resolveItemName(bot, args.item || args.name);
   if (!item) fail('craft_plan requires item', 'BAD_ARGS');
   const plan = mc.craftingPlan(bot, item, Number(args.count || 1));
   if (!plan.ok) fail(plan.error || 'plan failed', 'BAD_ARGS');

@@ -340,6 +340,61 @@ function seedName(name) {
   return n;
 }
 
+const ITEM_ALIASES = {
+  workbench: 'crafting_table',
+  craftingtable: 'crafting_table',
+  工作台: 'crafting_table',
+  sticks: 'stick',
+  木棍: 'stick',
+  plank: 'oak_planks',
+  planks: 'oak_planks',
+  木板: 'oak_planks',
+  wood: 'oak_log',
+  log: 'oak_log',
+};
+
+function resolveItemName(bot, raw) {
+  let n = String(raw || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+  if (ITEM_ALIASES[n]) n = ITEM_ALIASES[n];
+  const items = bot?.registry?.itemsByName || {};
+  if (items[n]) return n;
+  if (n.endsWith('s') && items[n.slice(0, -1)]) return n.slice(0, -1);
+  const hits = Object.keys(items).filter((k) => k === n || k.endsWith('_' + n) || k.includes(n));
+  if (hits.length === 1) return hits[0];
+  const tight = hits.filter((k) => k === n || k.endsWith('_' + n));
+  if (tight.length === 1) return tight[0];
+  return n;
+}
+
+function maxCrafts(bot, recipe) {
+  if (!recipe?.delta || !bot?.inventory) return 0;
+  let n = Infinity;
+  for (const d of recipe.delta) {
+    if (!d || d.count >= 0) continue;
+    const have = bot.inventory.count(d.id, d.metadata);
+    n = Math.min(n, Math.floor(have / -d.count));
+  }
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+function craftBatches(wantCount, resultCount) {
+  const want = Math.max(1, Number(wantCount) || 1);
+  const per = Math.max(1, Number(resultCount) || 1);
+  return Math.ceil(want / per);
+}
+
+function isPlankName(name) {
+  return /_planks$/.test(String(name || ''));
+}
+
+function isLogName(name) {
+  const n = String(name || '');
+  return /(_log|_stem)$/.test(n) || /(_wood|_hyphae)$/.test(n);
+}
+
 module.exports = {
   HOSTILES,
   HUNTABLE,
@@ -364,4 +419,9 @@ module.exports = {
   isMatureCrop,
   seedName,
   cropAge,
+  resolveItemName,
+  maxCrafts,
+  craftBatches,
+  isPlankName,
+  isLogName,
 };
