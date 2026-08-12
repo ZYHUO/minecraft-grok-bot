@@ -103,6 +103,80 @@ let authState = {
 };
 let pendingToken = null;
 
+function authOk() {
+  return !authRequired || authState.authenticated;
+}
+
+function resetAuthPending() {
+  authState = {
+    authenticated: false,
+    method: null,
+    skipped: !authRequired,
+    error: null,
+    expires_at: null,
+    client_id: authCfg.clientId || null,
+  };
+  if (authRequired && !args.noModes) modeRunner.enabled = false;
+}
+
+async function finishAuth(instance) {
+  if (bot !== instance) return;
+  if (!authRequired) {
+    authState = { ...authState, skipped: true, authenticated: false, error: null };
+    log('auth skipped (no GROK_TOKEN_URL/secret and no GROK_BOT_TOKEN)');
+    greetIfAllowed(instance);
+    return;
+  }
+  try {
+    let token = pendingToken ? await pendingToken : null;
+    if (bot !== instance) return;
+    pendingToken = null;
+    if (token && token.error) token = null;
+    const stale = !token || !token.access_token || (token.expires_at && token.expires_at < Date.now() + 5000);
+    if (stale) token = await gateAuth.fetchAccessToken(authCfg);
+    if (bot !== instance) return;
+    gateAuth.sendAuth(instance, token.access_token);
+    authState = {
+      authenticated: true,
+      method: token.method,
+      skipped: false,
+      error: null,
+      expires_at: token.expires_at || null,
+      client_id: authCfg.clientId,
+      sent: true,
+    };
+    if (!args.noModes) modeRunner.enabled = true;
+    log('auth sent', token.method, gateAuth.AUTH_CHANNEL);
+    eventLog.push('auth', { ok: true, method: token.method });
+    greetIfAllowed(instance);
+  } catch (e) {
+    if (bot !== instance) return;
+    authState = {
+      authenticated: false,
+      method: null,
+      skipped: false,
+      error: e.message,
+      expires_at: null,
+      client_id: authCfg.clientId,
+      sent: false,
+    };
+    lastError = `auth: ${e.message}`;
+    if (!args.noModes) modeRunner.enabled = false;
+    log('auth failed — expect SPECTATOR:', e.message);
+    eventLog.push('auth', { ok: false, error: e.message });
+  }
+}
+
+function greetIfAllowed(instance) {
+  if (!soul.greeting || soul.modes?.social === false) return;
+  if (!authOk()) return;
+  setTimeout(() => {
+    if (bot === instance && authOk()) {
+      bot.chat?.(String(soul.greeting).slice(0, 100));
+    }
+  }, 1500);
+}
+
 // ---------- Logging ----------
 const logDir = path.resolve(__dirname, config.logDir);
 try {
@@ -489,6 +563,7 @@ function createBot() {
   starting = true;
   connected = false;
   lastError = null;
+  resetAuthPending();
 
   // Abort in-flight work and drop old connection cleanly
   abortCurrentJob('reconnect').catch(() => {});
@@ -591,60 +666,6 @@ function createBot() {
     instance.once('end', () => clearInterval(peerTick));
   });
 
-async function finishAuth(instance) {
-  if (!authRequired) {
-    authState = { ...authState, skipped: true, authenticated: false, error: null };
-    log('auth skipped (no GROK_TOKEN_URL/secret and no GROK_BOT_TOKEN)');
-    if (soul.greeting && soul.modes?.social !== false) {
-      setTimeout(() => {
-        if (bot === instance) bot.chat?.(String(soul.greeting).slice(0, 100));
-      }, 1500);
-    }
-    return;
-  }
-  try {
-    let token = pendingToken ? await pendingToken : null;
-    pendingToken = null;
-    if (token && token.error) throw token.error;
-    if (!token || !token.access_token) {
-      token = await gateAuth.fetchAccessToken(authCfg);
-    }
-    if (bot !== instance) return;
-    gateAuth.sendAuth(instance, token.access_token);
-    authState = {
-      authenticated: true,
-      method: token.method,
-      skipped: false,
-      error: null,
-      expires_at: token.expires_at || null,
-      client_id: authCfg.clientId,
-    };
-    if (!args.noModes) modeRunner.enabled = true;
-    log('auth sent', token.method, gateAuth.AUTH_CHANNEL);
-    eventLog.push('auth', { ok: true, method: token.method });
-    if (soul.greeting && soul.modes?.social !== false) {
-      setTimeout(() => {
-        if (bot === instance && authState.authenticated) {
-          bot.chat?.(String(soul.greeting).slice(0, 100));
-        }
-      }, 1500);
-    }
-  } catch (e) {
-    authState = {
-      authenticated: false,
-      method: null,
-      skipped: false,
-      error: e.message,
-      expires_at: null,
-      client_id: authCfg.clientId,
-    };
-    lastError = `auth: ${e.message}`;
-    if (!args.noModes) modeRunner.enabled = false;
-    log('auth failed — expect SPECTATOR:', e.message);
-    eventLog.push('auth', { ok: false, error: e.message });
-  }
-}
-
   // Player chat — primary multi-agent bus (in-world only)
   bot.on('chat', (username, message) => {
     if (bot !== instance) return;
@@ -675,9 +696,9 @@ async function finishAuth(instance) {
           }
         }
       })().catch(() => {});
-      if (!isBusy() && soul.modes?.social !== false) {
+      if (!isBusy() && soul.modes?.social !== false && authOk()) {
         setTimeout(() => {
-          if (bot !== instance) return;
+          if (bot !== instance || !authOk()) return;
           try {
             bot.chat(presence.pickReactLine('named', soul));
           } catch {
@@ -716,9 +737,9 @@ async function finishAuth(instance) {
     if (death && death.name !== bot.username) {
       const last = peers.get(death.name);
       eventLog.push('death_other', { name: death.name, how: death.how, last });
-      if (!isBusy() && soul.modes?.social !== false) {
+      if (!isBusy() && soul.modes?.social !== false && authOk()) {
         setTimeout(() => {
-          if (bot !== instance) return;
+          if (bot !== instance || !authOk()) return;
           try {
             bot.chat(presence.pickReactLine('death', soul));
           } catch {
@@ -766,9 +787,9 @@ async function finishAuth(instance) {
     if (now - lastBoomAt < 1500) return;
     lastBoomAt = now;
     eventLog.push('explode', { sound: String(label) });
-    if (!isBusy() && soul.modes?.social !== false) {
+    if (!isBusy() && soul.modes?.social !== false && authOk()) {
       setTimeout(() => {
-        if (bot !== instance) return;
+        if (bot !== instance || !authOk()) return;
         try {
           bot.chat(presence.pickReactLine('explode', soul));
         } catch {

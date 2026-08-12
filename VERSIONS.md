@@ -2,7 +2,7 @@
 
 | Component | Version | Notes |
 |-----------|---------|--------|
-| Paper MC | 1.20.4 | Best Mineflayer compatibility |
+| Paper MC | **1.20.1** (also 1.20.4) | Match `MC_VERSION` to the live server. 1.20.1 = protocol 763 |
 | Node.js | 20+ LTS (22 OK) | player-bot runtime |
 | OpenJDK | 21 | Paper server |
 | mineflayer | ^4.27.0 | Core bot |

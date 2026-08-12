@@ -106,7 +106,7 @@ if ! command -v java >/dev/null 2>&1; then
 fi
 
 if [[ ! -f "$SERVER_DIR/paper.jar" ]]; then
-  echo "[server] paper.jar missing — downloading Paper 1.20.4 ..."
+  echo "[server] paper.jar missing — downloading Paper 1.20.1 ..."
   bash "$SERVER_DIR/download-paper.sh"
 fi
 

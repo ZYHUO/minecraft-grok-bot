@@ -10,6 +10,8 @@ See **[ARCHITECTURE.md](./ARCHITECTURE.md)** for the why.
 ```bash
 ./start-server.sh                          # Paper, wait for Done
 ./gbot/gbot spawn -name Andy  -soul souls/andy.toml
+# 默认协议 1.20.1。连 1.20.4 服时：
+#   ./gbot/gbot spawn -name Andy -mc-version 1.20.4
 ./gbot/gbot spawn -name Miner -soul souls/miner.toml
 
 # each Grok Bot session only attaches ITS body:
@@ -50,14 +52,17 @@ Legacy: `hub/` HTTP coordinator — **not recommended** (kills emergence).
 3. `spawn` 后走 plugin 通道 `grokbot:auth` 发送 `Bearer <jwt>`
 4. `sub` 必须等于游戏名；失败 → **旁观**（不是 tab 前缀）
 
-复制 `.env.example` 为 `.env`，**不要把 secret 提交进 git**。契约见 [AUTH.md](./AUTH.md)。
+复制 `.env.example` 为 `.env`，**不要把 secret 提交进 git**。进程不会自动读 `.env`，需要先 `set -a && source .env`（或自己 export）。契约见 [AUTH.md](./AUTH.md)。
+
+`client_id` 默认用 soul 里的（andy/miner/wild），不要全局 export 同一个 `GROK_CLIENT_ID`。
 
 ```bash
-export GROK_CLIENT_ID=andy
-export GROK_CLIENT_SECRET=...
+set -a && source .env && set +a
+export GROK_CLIENT_SECRET=...          # 每个 bot 各一套，或 AS 按 client_id 查
 export GROK_TOKEN_URL=http://127.0.0.1:3200/oauth/token
 export GROK_MC_AUDIENCE=mc-paper-1.20.1
-./gbot/gbot spawn -name Andy -soul souls/andy.toml
+./gbot/gbot spawn -name Andy  -soul souls/andy.toml
+./gbot/gbot spawn -name Miner -soul souls/miner.toml
 ./gbot/gbot cmd Andy auth-status
 ```
 

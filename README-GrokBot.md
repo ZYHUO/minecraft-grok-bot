@@ -1,6 +1,6 @@
 # LEGACY — HTTP hub notes
 
-**This document is historical.** Current control is Unix sockets via `gbot`, not the hub.
+**This document is historical.** Current control is Unix sockets via `gbot`, not the hub. Default MC version is **1.20.1** (see README.md).
 
 Use `README.md` + `ARCHITECTURE.md` + `./gbot/gbot attach Andy`.  
 `hub/`, `mcctl`, and HTTP ports `3001+` are leftover and are **not** the recommended loop.

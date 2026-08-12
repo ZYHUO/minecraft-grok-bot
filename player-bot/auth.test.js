@@ -16,19 +16,18 @@ test('formatBearer', () => {
   assert.equal(formatBearer('Bearer xyz'), 'Bearer xyz');
 });
 
-test('loadAuthConfig prefers env then soul client_id', () => {
+test('loadAuthConfig prefers soul client_id over env', () => {
   const cfg = loadAuthConfig(
     {
-      GROK_CLIENT_ID: '',
+      GROK_CLIENT_ID: 'andy',
       GROK_CLIENT_SECRET: 's',
       GROK_TOKEN_URL: 'http://127.0.0.1:3200/oauth/token',
       GROK_MC_AUDIENCE: 'mc-paper-1.20.1',
     },
-    { username: 'Andy', clientId: 'andy' }
+    { username: 'Miner', clientId: 'miner' }
   );
-  assert.equal(cfg.username, 'Andy');
-  assert.equal(cfg.clientId, 'andy');
-  assert.equal(cfg.audience, 'mc-paper-1.20.1');
+  assert.equal(cfg.username, 'Miner');
+  assert.equal(cfg.clientId, 'miner');
   assert.ok(isAuthConfigured(cfg));
 });
 

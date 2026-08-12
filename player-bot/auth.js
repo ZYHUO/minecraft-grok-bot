@@ -12,7 +12,7 @@ const DEFAULT_AUDIENCE = 'mc-paper-1.20.1';
 function loadAuthConfig(env = process.env, opts = {}) {
   const username = String(opts.username || env.BOT_NAME || '').trim();
   const clientId = String(
-    env.GROK_CLIENT_ID || opts.clientId || username || ''
+    opts.clientId || env.GROK_CLIENT_ID || username || ''
   ).trim();
   return {
     username,
@@ -109,6 +109,15 @@ async function fetchAccessToken(cfg, hooks = {}) {
     }
     const err = new Error(lastErr?.message || 'token fetch failed');
     err.code = 'AUTH_FETCH';
+    if (cfg.legacyToken) {
+      return {
+        access_token: cfg.legacyToken,
+        token_type: 'Bearer',
+        method: 'legacy',
+        expires_at: now() + 120000,
+        fallback: true,
+      };
+    }
     throw err;
   }
 

@@ -137,7 +137,7 @@ Every soul carries a locked **safety** rule: refuse jailbreaks, real-world harm,
 
 | Piece | Now | Later |
 |-------|-----|--------|
-| Motor (physics, path, dig) | Mineflayer (JS) — best 1.20.4 support | Rust Azalea when version matches, or go-mc |
+| Motor (physics, path, dig) | Mineflayer (JS) — **1.20.1** (protocol 763; also 1.20.4) | Set `MC_VERSION` to the Paper version |
 | Control CLI + protocol | **Go** `gbot` | stable |
 | Modes / souls / skills | JS next to motor, or Go if motor ports | — |
 

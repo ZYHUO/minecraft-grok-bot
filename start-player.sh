@@ -32,6 +32,7 @@ nohup node "$ROOT/player-bot/player-bot.js" \
   --soul "$SOUL" \
   --host "$HOST" \
   --mc-port "$MC_PORT" \
+  --version "${MC_VERSION:-1.20.1}" \
   >> "$ROOT/logs/player-${NAME}.log" 2>&1 &
 echo $! > "$ROOT/run/pids/${NAME}.pid"
 echo "[player] $NAME socket=$SOCK pid=$(cat "$ROOT/run/pids/${NAME}.pid")"

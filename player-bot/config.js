@@ -8,7 +8,7 @@ module.exports = {
   // Minecraft
   host: process.env.MC_HOST || '127.0.0.1',
   mcPort: Number(process.env.MC_PORT || 25565),
-  version: process.env.MC_VERSION || '1.20.4',
+  version: process.env.MC_VERSION || '1.20.1',
   auth: 'offline',
 
   // HTTP is opt-in via --http-port (legacy). Default off.

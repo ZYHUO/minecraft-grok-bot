@@ -24,6 +24,13 @@ import (
 	"time"
 )
 
+func getenvDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func processAlive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -101,9 +108,10 @@ func cmdSpawn(args []string) error {
 	soul := fs.String("soul", "", "soul profile path")
 	host := fs.String("host", "127.0.0.1", "MC host")
 	mcPort := fs.Int("mc-port", 25565, "MC port")
+	mcVersion := fs.String("mc-version", getenvDefault("MC_VERSION", "1.20.1"), "Minecraft protocol version")
 	httpPort := fs.Int("http-port", 0, "legacy HTTP (0=off)")
 	noModes := fs.Bool("no-modes", false, "disable autonomous modes")
-	clientID := fs.String("client-id", os.Getenv("GROK_CLIENT_ID"), "GrokBotGate client_id")
+	clientID := fs.String("client-id", "", "override GrokBotGate client_id (default: soul)")
 	tokenURL := fs.String("token-url", os.Getenv("GROK_TOKEN_URL"), "OAuth token URL")
 	audience := fs.String("audience", os.Getenv("GROK_MC_AUDIENCE"), "JWT audience")
 	_ = fs.Parse(args)
@@ -143,6 +151,7 @@ func cmdSpawn(args []string) error {
 		"--soul", *soul,
 		"--host", *host,
 		"--mc-port", strconv.Itoa(*mcPort),
+		"--version", *mcVersion,
 	}
 	if *httpPort > 0 {
 		argv = append(argv, "--http-port", strconv.Itoa(*httpPort))
@@ -169,6 +178,9 @@ func cmdSpawn(args []string) error {
 	}
 	if *audience != "" {
 		env = append(env, "GROK_MC_AUDIENCE="+*audience)
+	}
+	if *mcVersion != "" {
+		env = append(env, "MC_VERSION="+*mcVersion)
 	}
 	env = append(env, "BOT_NAME="+*name)
 	cmd.Env = env
@@ -590,7 +602,8 @@ func cmdAttach(args []string) error {
 func usage() {
 	fmt.Print(`gbot — decentralized body control (Unix socket JSONL, no hub)
 
-  gbot spawn -name Andy [-soul souls/andy.toml] [-host 127.0.0.1] [-mc-port 25565]
+  gbot spawn -name Andy [-soul souls/andy.toml] [-host 127.0.0.1] [-mc-port 25565] [-mc-version 1.20.1]
+  gbot cmd Andy auth-status
   gbot stop Andy
   gbot list
   gbot cmd Andy status
@@ -599,7 +612,11 @@ func usage() {
   gbot attach Andy
 
 Env:
-  GBOT_SOCKET   override socket path for next cmd
+  GBOT_SOCKET          override socket path
+  MC_VERSION           protocol (default 1.20.1)
+  GROK_TOKEN_URL       OAuth token endpoint
+  GROK_CLIENT_SECRET   per-bot secret (never pass on CLI)
+  GROK_MC_AUDIENCE     JWT aud (default mc-paper-1.20.1)
 `)
 }
 

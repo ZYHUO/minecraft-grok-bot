@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Download Paper (default 1.20.4, latest stable build) via Paper fill API v3.
+# Download Paper (default 1.20.1) via Paper fill API v3.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-VERSION="${PAPER_VERSION:-1.20.4}"
+VERSION="${PAPER_VERSION:-1.20.1}"
 API="https://fill.papermc.io/v3/projects/paper"
 
 echo "[paper] Resolving latest build for $VERSION ..."
