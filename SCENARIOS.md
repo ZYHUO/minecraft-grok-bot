@@ -47,6 +47,12 @@ You are **playing**, not clocking a shift. Stay alive so the next loop can keep 
 - Do not linger in water or clock out at low health.
 - Before the turn ends: stop dangerous jobs (dig_down / underwater / fight), **get on land**, **walk to light**, eat if hurt. `skill wrap_up` does that.
 
+用户回合移动（短）：
+
+- 短距离、多段 `go`，少一次拉很长的跨地形目标。
+- 水边 / 陡坡 / 密林不要开长距离 `canDig`。
+- `Took to long to decide path to goal` = 想路超时，换更近的中间点再试，不是掉线。
+
 Never wait for a chief mail. If lonely, **shout in chat**.
 
 ## Mindcraft parallels

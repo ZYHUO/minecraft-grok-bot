@@ -16,3 +16,9 @@ test('toml cannot overwrite play.rule', () => {
   const s = loadSoul(path.join(__dirname, '../souls/wild.toml'));
   assert.match(s.play.rule, /保命续玩/);
 });
+
+test('play.path is locked and wrap_up rule stays short', () => {
+  const s = loadSoul(path.join(__dirname, '../souls/andy.toml'));
+  assert.match(s.play.path, /中间点/);
+  assert.doesNotMatch(s.play.rule, /decide path/);
+});

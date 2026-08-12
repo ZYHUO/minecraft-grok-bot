@@ -87,6 +87,8 @@ const DEFAULT_SOUL = {
     stay_in_world: true,
     rule:
       '你在玩，不在值班。优先保命续玩：水里先上岸，低血先吃再找亮，不要回一句聊天就停、不要低血收工。每轮结束前必须：停掉挖深/水下/打架等危险任务，上岸，走到亮处（火把/灯/床），再结束本轮。闲下来继续晃、建、说话。可用 skill wrap_up。',
+    path:
+      '寻路（用户回合）：优先短距离、多段 go，少一次拉很长的跨地形目标。水边、陡坡、密林不要开长距离 canDig。若出现 Took to long to decide path to goal，当作想路超时，换更近的中间点再试，不是掉线。',
   },
 };
 
@@ -113,6 +115,7 @@ function loadSoul(filePath) {
   soul.play = { ...DEFAULT_SOUL.play, ...(parsed.play || {}) };
   soul.play.stay_in_world = true;
   soul.play.rule = DEFAULT_SOUL.play.rule;
+  soul.play.path = DEFAULT_SOUL.play.path;
   if (parsed.name) soul.name = parsed.name;
   return soul;
 }
