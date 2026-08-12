@@ -7,7 +7,7 @@
  */
 
 const { isHostileName, isHuntableName, timeOfDay } = require('./mcdata');
-const { findShelterLight, emote, blockLightLevel } = require('./presence');
+const { findShelterLight, emote, blockLightLevel, isSpectator } = require('./presence');
 
 function rand() {
   return Math.random();
@@ -393,6 +393,7 @@ class ModeRunner {
     let bestD = Infinity;
     for (const name of Object.keys(bot.players)) {
       if (name === bot.username) continue;
+      if (isSpectator(bot, name)) continue;
       const e = bot.players[name]?.entity;
       if (!e?.position) continue;
       const d = bot.entity.position.distanceTo(e.position);

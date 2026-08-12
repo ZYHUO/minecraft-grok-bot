@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSpectator } = require('./presence');
+
 /**
  * Last-known places of other players, heard in-world (chat / signs / sight).
  * Per body only — not a shared tracker.
@@ -49,6 +51,7 @@ class PeerBook {
     if (!bot?.players) return;
     for (const name of Object.keys(bot.players)) {
       if (name === bot.username) continue;
+      if (isSpectator(bot, name)) continue;
       const e = bot.players[name]?.entity;
       if (!e?.position) continue;
       this.note(name, e.position, 'sight');

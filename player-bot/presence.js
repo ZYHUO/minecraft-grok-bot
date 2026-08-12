@@ -7,6 +7,34 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function isSpectator(bot, nameOrPlayer) {
+  if (!bot) return false;
+  const p =
+    typeof nameOrPlayer === 'string' || nameOrPlayer == null
+      ? bot.players?.[nameOrPlayer]
+      : nameOrPlayer;
+  if (!p) return false;
+  const gm = p.gamemode;
+  return gm === 3 || gm === '3' || gm === 'spectator';
+}
+
+function playerEntity(bot, name) {
+  if (!bot || !name || name === bot.username) return null;
+  if (isSpectator(bot, name)) return null;
+  return bot.players[name]?.entity || null;
+}
+
+function eachVisiblePlayer(bot, fn) {
+  if (!bot?.players) return;
+  for (const name of Object.keys(bot.players)) {
+    if (name === bot.username) continue;
+    if (isSpectator(bot, name)) continue;
+    const e = bot.players[name]?.entity;
+    if (!e?.position) continue;
+    fn(name, e, bot.players[name]);
+  }
+}
+
 function gaitOf(soul) {
   const g = soul?.gait || {};
   const style = g.style || 'amble';
@@ -135,11 +163,9 @@ function hashAngle(name) {
 function circleSlot(bot, center, radius = 3.1) {
   const c = new Vec3(center.x, center.y, center.z);
   let crowd = 1;
-  for (const name of Object.keys(bot.players || {})) {
-    if (name === bot.username) continue;
-    const e = bot.players[name]?.entity;
-    if (e?.position && e.position.distanceTo(c) < 8) crowd += 1;
-  }
+  eachVisiblePlayer(bot, (_name, e) => {
+    if (e.position.distanceTo(c) < 8) crowd += 1;
+  });
   const n = Math.max(crowd, 3);
   const ang = hashAngle(bot.username) + (2 * Math.PI) / n;
   return {
@@ -152,21 +178,20 @@ function circleSlot(bot, center, radius = 3.1) {
 function tooCloseToAnyone(bot, min = 1.65) {
   const me = bot.entity?.position;
   if (!me) return false;
-  for (const name of Object.keys(bot.players || {})) {
-    if (name === bot.username) continue;
-    const e = bot.players[name]?.entity;
-    if (e?.position && me.distanceTo(e.position) < min) return true;
-  }
+  let close = false;
+  eachVisiblePlayer(bot, (_name, e) => {
+    if (me.distanceTo(e.position) < min) close = true;
+  });
+  if (close) return true;
   return false;
 }
 
 async function glanceAround(bot) {
   try {
     const others = [];
-    for (const name of Object.keys(bot.players || {})) {
-      const e = bot.players[name]?.entity;
-      if (e?.position && e !== bot.entity) others.push(e);
-    }
+    eachVisiblePlayer(bot, (_name, e) => {
+      if (e !== bot.entity) others.push(e);
+    });
     if (others.length && Math.random() < 0.55) {
       const e = others[Math.floor(Math.random() * others.length)];
       await bot.lookAt(e.position.offset(0, e.height * 0.8, 0), true);
@@ -323,8 +348,8 @@ function aborted(signal) {
 async function reactWorld(bot, soul, ev, signal) {
   if (aborted(signal)) return;
   if (ev.pos) await lookAtPos(bot, ev.pos, ev.kind === 'named' ? 1.4 : 0.5);
-  else if (ev.from && bot.players[ev.from]?.entity) {
-    const e = bot.players[ev.from].entity;
+  else if (ev.from && playerEntity(bot, ev.from)) {
+    const e = playerEntity(bot, ev.from);
     await lookAtPos(bot, e.position, e.height * 0.85);
   } else {
     await glanceAround(bot);
@@ -368,6 +393,9 @@ function findShelterLight(bot, range = 24) {
 }
 
 module.exports = {
+  isSpectator,
+  playerEntity,
+  eachVisiblePlayer,
   gaitOf,
   applyGait,
   WorldSense,

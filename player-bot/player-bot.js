@@ -578,6 +578,7 @@ function createBot() {
   bot.on('chat', (username, message) => {
     if (bot !== instance) return;
     if (username === bot.username) return;
+    if (presence.isSpectator(bot, username)) return;
     pushChat(`<${username}> ${message}`, { from: username });
     const parsed = parseWorldMessage(message, username);
     if (parsed) {
@@ -661,6 +662,7 @@ function createBot() {
 
   bot.on('whisper', (username, message) => {
     if (bot !== instance) return;
+    if (presence.isSpectator(bot, username)) return;
     pushChat(`[whisper][${username}] ${message}`, { from: username, whisper: true });
     const parsed = parseWorldMessage(message, username);
     if (parsed) {

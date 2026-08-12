@@ -5,6 +5,7 @@ const {
   goals: { GoalNear, GoalFollow },
   Movements,
 } = require('mineflayer-pathfinder');
+const { isSpectator } = require('./presence');
 
 /**
  * Action executor for Mineflayer.
@@ -343,6 +344,11 @@ async function executeAction(bot, config, body, signal) {
         err.code = 'BAD_ARGS';
         throw err;
       }
+      if (isSpectator(bot, name)) {
+        const err = new Error(`Player is spectating: ${name}`);
+        err.code = 'NOT_FOUND';
+        throw err;
+      }
       const target = bot.players[name]?.entity;
       if (!target) {
         const err = new Error(`Player not found or not visible: ${name}`);
@@ -661,6 +667,11 @@ async function executeAction(bot, config, body, signal) {
         entity = bot.entities[Number(body.entity_id)];
       } else if (body.player || body.name) {
         const name = body.player || body.name;
+        if (isSpectator(bot, name)) {
+          const err = new Error(`Player is spectating: ${name}`);
+          err.code = 'NOT_FOUND';
+          throw err;
+        }
         entity = bot.players[name]?.entity || null;
         if (!entity) {
           const want = String(name).toLowerCase();

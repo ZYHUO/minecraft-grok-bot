@@ -384,10 +384,13 @@ async function arriveSoft(bot, entity, soul, ctx) {
 function resolvePeerName(bot, peers, name) {
   if (!name) return null;
   const want = String(name).toLowerCase();
-  if (bot.players[name]) return name;
-  const hit = Object.keys(bot.players || {}).find((n) => n.toLowerCase() === want);
+  if (bot.players[name] && !presence.isSpectator(bot, name)) return name;
+  const hit = Object.keys(bot.players || {}).find(
+    (n) => n.toLowerCase() === want && !presence.isSpectator(bot, n)
+  );
   if (hit) return hit;
   const p = peers?.get?.(name);
+  if (p && presence.isSpectator(bot, p.name)) return null;
   return p?.name || name;
 }
 
@@ -400,6 +403,9 @@ async function goFind(ctx, args) {
   ensureConnected(bot);
   if (peers?.observeVisible) peers.observeVisible(bot);
   const rawName = args.player || args.name;
+  if (rawName && presence.isSpectator(bot, rawName)) {
+    fail(`${rawName} is spectating — ignored`, 'NOT_FOUND');
+  }
   const player = resolvePeerName(bot, peers, rawName);
   const heard = player ? peers?.get?.(player) : null;
   let dest = null;
@@ -412,8 +418,8 @@ async function goFind(ctx, args) {
       z: Number(args.z),
     };
     how = 'given';
-  } else if (player && bot.players[player]?.entity) {
-    dest = bot.players[player].entity.position;
+  } else if (player && presence.playerEntity(bot, player)) {
+    dest = presence.playerEntity(bot, player).position;
     how = 'sight';
   } else if (heard) {
     dest = { x: heard.x, y: heard.y ?? bot.entity.position.y, z: heard.z };
@@ -468,7 +474,7 @@ async function goFind(ctx, args) {
       lastGoalAt = 0;
     }
 
-    const live = player ? bot.players[player]?.entity : null;
+    const live = player ? presence.playerEntity(bot, player) : null;
     if (live?.position) {
       dest = live.position;
       how = 'sight';
@@ -510,7 +516,7 @@ async function goFind(ctx, args) {
         await arriveSoft(bot, null, soul, ctx);
         throwIfAborted(ctx);
         await presence.glanceAround(bot);
-        const nowLive = player ? bot.players[player]?.entity : null;
+        const nowLive = player ? presence.playerEntity(bot, player) : null;
         if (nowLive) continue;
         try {
           bot.chat(presence.pickMissLine(player));
@@ -571,7 +577,7 @@ async function doEmote(ctx, args) {
   ensureConnected(bot);
   const kind = args.kind || args.name || args.emote || 'wave';
   const targetName = args.player || args.to;
-  const ent = targetName ? bot.players[targetName]?.entity : null;
+  const ent = targetName ? presence.playerEntity(bot, targetName) : null;
   const did = await presence.emote(bot, kind, {
     target: ent?.position,
     text: args.text,
@@ -631,7 +637,8 @@ async function give(ctx, args) {
   const item = args.item || args.name;
   const count = Number(args.count || 1);
   if (!player || !item) fail('give requires player and item', 'BAD_ARGS');
-  const ent = bot.players[player]?.entity;
+  if (presence.isSpectator(bot, player)) fail(`${player} is spectating`, 'NOT_FOUND');
+  const ent = presence.playerEntity(bot, player);
   if (!ent) fail(`Player not visible: ${player}`, 'NOT_FOUND');
   const d0 = bot.entity.position.distanceTo(ent.position);
   if (d0 < 1.5) {
@@ -1258,7 +1265,7 @@ async function lookAtPlayer(ctx, args) {
   ensureConnected(bot);
   const player = args.player || args.name;
   if (!player) fail('look_player requires player', 'BAD_ARGS');
-  const ent = bot.players[player]?.entity;
+  const ent = presence.playerEntity(bot, player);
   if (!ent) fail(`Player not visible: ${player}`, 'NOT_FOUND');
   await bot.lookAt(ent.position.offset(0, ent.height * 0.9, 0), true);
   return ok('looking', { player });
@@ -1613,6 +1620,7 @@ async function whisper(ctx, args) {
   const player = args.player || args.to;
   const text = args.text || args.message || args.body;
   if (!player || !text) fail('whisper requires player and text', 'BAD_ARGS');
+  if (presence.isSpectator(bot, player)) fail(`${player} is spectating`, 'NOT_FOUND');
   if (typeof bot.whisper === 'function') await bot.whisper(player, String(text).slice(0, 240));
   else await bot.chat(`/msg ${player} ${String(text).slice(0, 200)}`);
   return ok('whispered', { player, text: String(text).slice(0, 240) });
@@ -1744,7 +1752,9 @@ async function lookAround(ctx) {
     wearing: mc.wearing(bot),
     above_head: mc.firstBlockAboveHead(bot),
     blocks: mc.nearbyBlockTypes(bot, 8),
-    players: Object.keys(bot.players).filter((n) => n !== bot.username),
+    players: Object.keys(bot.players).filter(
+      (n) => n !== bot.username && !presence.isSpectator(bot, n)
+    ),
   });
 }
 

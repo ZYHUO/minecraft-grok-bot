@@ -1,6 +1,7 @@
 'use strict';
 
 const mc = require('./mcdata');
+const { isSpectator } = require('./presence');
 
 /**
  * Structured status collectors for Grok Bot.
@@ -84,6 +85,7 @@ function nearbyPlayers(bot, range, maxN) {
   const out = [];
   for (const name of Object.keys(bot.players)) {
     if (name === bot.username) continue;
+    if (isSpectator(bot, name)) continue;
     const p = bot.players[name]?.entity;
     if (!p?.position) continue;
     const dist = me.distanceTo(p.position);
