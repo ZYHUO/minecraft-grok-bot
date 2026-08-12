@@ -6,8 +6,8 @@
  * They never assign work to other bots.
  */
 
-const { Vec3 } = require('vec3');
-const { isHostileName, isHuntableName } = require('./mcdata');
+const { isHostileName, isHuntableName, timeOfDay } = require('./mcdata');
+const { findShelterLight, emote, blockLightLevel } = require('./presence');
 
 function rand() {
   return Math.random();
@@ -39,6 +39,8 @@ class ModeRunner {
     this._lastGreet = new Map(); // name -> ts
     this._lastPickup = 0;
     this._lastTorch = 0;
+    this._lastShelter = 0;
+    this._holdingShelter = false;
     this._goal = null; // soft local goal string from Grok
     this.enabled = true;
   }
@@ -99,6 +101,11 @@ class ModeRunner {
     if (modes.unstuck !== false) {
       const u = await this.unstuck(bot);
       if (u) return;
+    }
+
+    if (modes.seek_light !== false) {
+      const sh = await this.seekLight(bot);
+      if (sh) return;
     }
 
     if (modes.item_collecting) {
@@ -408,6 +415,11 @@ class ModeRunner {
     const last = this._lastGreet.get(best.name) || 0;
     if (Date.now() - last > 120000 && rand() < greetChance) {
       this._lastGreet.set(best.name, Date.now());
+      try {
+        await emote(bot, 'jump', { target: best.e.position });
+      } catch {
+        /* */
+      }
       const line =
         this.soul.greeting ||
         `嗨 ${best.name}`;
@@ -420,8 +432,49 @@ class ModeRunner {
     }
   }
 
+  async seekLight(bot) {
+    const now = Date.now();
+    if (now - this._lastShelter < 8000) return false;
+    const tod = timeOfDay(bot);
+    const night = tod === 'night' || tod === 'midnight';
+    const rain = Boolean(bot.isRaining);
+    if (!night && !rain) {
+      this._holdingShelter = false;
+      return false;
+    }
+    const here = bot.blockAt(bot.entity.position);
+    const light = blockLightLevel(here);
+    if (light >= 9) {
+      this._holdingShelter = true;
+      return false;
+    }
+    this._holdingShelter = false;
+    const lamp = findShelterLight(bot, 24);
+    if (!lamp) return false;
+    this._lastShelter = now;
+    this.emit('mode', {
+      name: 'seek_light',
+      detail: rain ? 'rain' : 'night',
+      to: lamp.name,
+    });
+    try {
+      await this.runAction({
+        type: 'move_to',
+        x: lamp.position.x,
+        y: lamp.position.y,
+        z: lamp.position.z,
+        range: 3,
+        timeout_ms: 12000,
+      });
+    } catch {
+      /* */
+    }
+    return true;
+  }
+
   async curiosity(bot) {
     const idle = this.soul.idle || {};
+    if (this._holdingShelter) return;
     const chance = idle.wander_chance ?? 0.05;
     if (rand() > chance) return;
     const r = idle.wander_radius ?? 10;

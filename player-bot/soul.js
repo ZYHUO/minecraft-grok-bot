@@ -60,12 +60,21 @@ const DEFAULT_SOUL = {
     hunting: false,
     item_collecting: true,
     torch_placing: true,
+    seek_light: true,
   },
   idle: {
     wander_chance: 0.05,
     wander_radius: 10,
     greet_chance: 0.1,
     stare_players: true,
+  },
+  gait: {
+    style: 'amble',
+    sprint: false,
+    sneak_near: 0,
+    pause_chance: 0.18,
+    look_interval_ms: 2200,
+    greet_jump: true,
   },
 };
 
@@ -83,8 +92,9 @@ function loadSoul(filePath) {
   else parsed = parseSimpleToml(text);
 
   Object.assign(soul, parsed);
-  if (parsed.modes) soul.modes = { ...soul.modes, ...parsed.modes };
-  if (parsed.idle) soul.idle = { ...soul.idle, ...parsed.idle };
+  soul.modes = { ...DEFAULT_SOUL.modes, ...(parsed.modes || {}) };
+  soul.idle = { ...DEFAULT_SOUL.idle, ...(parsed.idle || {}) };
+  soul.gait = { ...DEFAULT_SOUL.gait, ...(parsed.gait || {}) };
   if (parsed.name) soul.name = parsed.name;
   return soul;
 }

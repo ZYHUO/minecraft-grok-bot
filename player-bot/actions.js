@@ -55,7 +55,9 @@ function findItemByName(bot, name) {
 
 function setupMovements(bot) {
   const movements = new Movements(bot);
-  movements.allowSprinting = true;
+  const style = bot._soul?.gait?.style;
+  const sprint = bot._soul?.gait?.sprint;
+  movements.allowSprinting = sprint ?? style === 'sprint';
   movements.canDig = true;
   return movements;
 }

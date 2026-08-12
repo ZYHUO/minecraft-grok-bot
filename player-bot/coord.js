@@ -31,6 +31,13 @@ function parseCoords(s) {
       z: Number(m[3]),
     };
   }
+  m = text.match(
+    /(?:我在|过来|来找我|坐标|这边|附近|到|来)\s*(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)(?:[,\s]+(-?\d+(?:\.\d+)?))?/
+  );
+  if (m) {
+    if (m[3] !== undefined) return { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) };
+    return { x: Number(m[1]), z: Number(m[2]) };
+  }
   m = text.match(/(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/);
   if (m) return { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) };
   return null;
@@ -65,7 +72,8 @@ function parseWorldMessage(text, from = null) {
   const coords = parseCoords(t);
   if (!tag && !coords) return null;
   if (!tag) {
-    return { kind: 'coords', from, text: t, ...coords, raw: t };
+    const informal = /我在|过来|来找我|坐标|这边|附近/.test(t);
+    return { kind: informal ? 'here' : 'coords', from, text: t, ...coords, raw: t };
   }
   const kind = tag[1].toLowerCase();
   const rest = tag[2] || '';
@@ -82,7 +90,16 @@ function parseWorldMessage(text, from = null) {
 }
 
 function formatMeet(pos) {
-  return `[meet] x=${Math.floor(pos.x)} y=${Math.floor(pos.y)} z=${Math.floor(pos.z)}`;
+  const x = Math.floor(pos.x);
+  const y = Math.floor(pos.y);
+  const z = Math.floor(pos.z);
+  const lines = [
+    `我在 ${x} ${y} ${z} 附近，过来找我`,
+    `这边 ${x} ${y} ${z}，看见了喊一声`,
+    `[meet] ${x} ${y} ${z} 我在这晃`,
+    `来 ${x} ${z} 一带（y=${y}）`,
+  ];
+  return lines[Math.floor(Math.random() * lines.length)];
 }
 
 function formatTrade(need, give, count) {
@@ -99,7 +116,15 @@ function formatHave(item, count) {
 }
 
 function formatHere(pos) {
-  return `[here] x=${Math.floor(pos.x)} y=${Math.floor(pos.y)} z=${Math.floor(pos.z)}`;
+  const x = Math.floor(pos.x);
+  const y = Math.floor(pos.y);
+  const z = Math.floor(pos.z);
+  const lines = [
+    `我在 ${x} ${y} ${z}`,
+    `[here] ${x} ${y} ${z}`,
+    `人在 ${x} ${z}，高度 ${y}`,
+  ];
+  return lines[Math.floor(Math.random() * lines.length)];
 }
 
 function formatClaim(name, note) {

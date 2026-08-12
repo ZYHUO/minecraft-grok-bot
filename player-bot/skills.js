@@ -6,9 +6,11 @@
  */
 
 const { Vec3 } = require('vec3');
+const { goals: { GoalNear } } = require('mineflayer-pathfinder');
 const { navigateTo, findItemByName, stopAll } = require('./actions');
 const mc = require('./mcdata');
 const coord = require('./coord');
+const presence = require('./presence');
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -323,16 +325,263 @@ async function goTo(ctx, args) {
   });
 }
 
+function jitterPos(pos, radius = 3) {
+  const a = Math.random() * Math.PI * 2;
+  const r = 1.2 + Math.random() * radius;
+  return {
+    x: pos.x + Math.cos(a) * r,
+    y: pos.y,
+    z: pos.z + Math.sin(a) * r,
+  };
+}
+
+async function arriveSoft(bot, entity, soul, ctx) {
+  try {
+    bot.pathfinder?.setGoal?.(null);
+  } catch {
+    /* */
+  }
+  try {
+    bot.setControlState('sprint', false);
+    bot.setControlState('forward', false);
+  } catch {
+    /* */
+  }
+  await sleep(180 + Math.random() * 280);
+  throwIfAborted(ctx);
+  if (entity?.position && presence.tooCloseToAnyone(bot, 1.7)) {
+    const slot = presence.circleSlot(bot, entity.position, 3.1);
+    try {
+      bot.pathfinder.setGoal(new GoalNear(slot.x, slot.y, slot.z, 1));
+      await sleep(700 + Math.random() * 400);
+      throwIfAborted(ctx);
+      bot.pathfinder.setGoal(null);
+    } catch (e) {
+      if (e.code === 'ABORTED') throw e;
+    }
+  }
+  try {
+    bot.clearControlStates();
+  } catch {
+    /* */
+  }
+  throwIfAborted(ctx);
+  if (entity?.position) {
+    try {
+      await bot.lookAt(entity.position.offset(0, entity.height * 0.85, 0), true);
+    } catch {
+      /* */
+    }
+    throwIfAborted(ctx);
+    if (presence.gaitOf(soul).greet_jump) {
+      await presence.emote(bot, 'jump', { target: entity.position });
+    }
+    await sleep(280 + Math.random() * 500);
+    throwIfAborted(ctx);
+  }
+}
+
+function resolvePeerName(bot, peers, name) {
+  if (!name) return null;
+  const want = String(name).toLowerCase();
+  if (bot.players[name]) return name;
+  const hit = Object.keys(bot.players || {}).find((n) => n.toLowerCase() === want);
+  if (hit) return hit;
+  const p = peers?.get?.(name);
+  return p?.name || name;
+}
+
 async function goToPlayer(ctx, args) {
-  const { bot, config } = ctx;
+  return goFind(ctx, { ...args, range: args.range || 4 });
+}
+
+async function goFind(ctx, args) {
+  const { bot, config, peers, soul, sense } = ctx;
   ensureConnected(bot);
-  const player = args.player || args.name;
-  if (!player) fail('go_to_player requires player', 'BAD_ARGS');
-  const ent = bot.players[player]?.entity;
-  if (!ent) fail(`Player not visible: ${player}`, 'NOT_FOUND');
-  const range = Number(args.range || 3);
-  await nav(ctx, ent.position, range, config.moveTimeoutMs);
-  return ok('arrived_player', { player, pos: ent.position });
+  if (peers?.observeVisible) peers.observeVisible(bot);
+  const rawName = args.player || args.name;
+  const player = resolvePeerName(bot, peers, rawName);
+  const heard = player ? peers?.get?.(player) : null;
+  let dest = null;
+  let how = 'coords';
+
+  if (args.x !== undefined && args.z !== undefined) {
+    dest = {
+      x: Number(args.x),
+      y: args.y !== undefined ? Number(args.y) : bot.entity.position.y,
+      z: Number(args.z),
+    };
+    how = 'given';
+  } else if (player && bot.players[player]?.entity) {
+    dest = bot.players[player].entity.position;
+    how = 'sight';
+  } else if (heard) {
+    dest = { x: heard.x, y: heard.y ?? bot.entity.position.y, z: heard.z };
+    how = heard.source || 'heard';
+  } else if (!player) {
+    const last = (peers?.list?.() || []).sort((a, b) => a.age_s - b.age_s)[0];
+    if (last) {
+      dest = { x: last.x, y: last.y ?? bot.entity.position.y, z: last.z };
+      how = 'last_peer';
+    }
+  }
+  if (!dest) {
+    fail(
+      player
+        ? `Don't know where ${player} is. Wait for them to shout coords, or skill shout_meet yourself.`
+        : 'go_find needs a player name, or someone must have shouted coords',
+      'NOT_FOUND',
+      { peers: peers?.list?.() || [] }
+    );
+  }
+
+  const loose = Number(args.range || 5);
+  const timeout = Number(args.timeout_ms || config?.moveTimeoutMs || 90000);
+  const end = Date.now() + timeout;
+  let lastGlance = 0;
+  let lastGoalAt = 0;
+  let lastJitterAt = 0;
+  let target = jitterPos(dest, 3);
+  let onTrace = false;
+  const gait = presence.gaitOf(soul);
+
+  const setWalkGoal = (pos, range) => {
+    bot.pathfinder.setGoal(new GoalNear(pos.x, pos.y, pos.z, range));
+    lastGoalAt = Date.now();
+  };
+
+  while (Date.now() < end) {
+    throwIfAborted(ctx);
+    if (peers?.observeVisible) peers.observeVisible(bot);
+
+    const lava = presence.lavaNear(bot);
+    if (lava) sense?.push?.('lava', { pos: lava });
+    const evs = sense?.take?.() || [];
+    if (evs.length) {
+      try {
+        bot.pathfinder?.setGoal?.(null);
+      } catch {
+        /* */
+      }
+      await presence.reactWorld(bot, soul, evs[evs.length - 1], ctx.signal);
+      throwIfAborted(ctx);
+      lastGoalAt = 0;
+    }
+
+    const live = player ? bot.players[player]?.entity : null;
+    if (live?.position) {
+      dest = live.position;
+      how = 'sight';
+      onTrace = false;
+      const d = bot.entity.position.distanceTo(live.position);
+      presence.applyGait(bot, soul, d);
+      if (d <= loose) {
+        await arriveSoft(bot, live, soul, ctx);
+        throwIfAborted(ctx);
+        return ok('found', {
+          player,
+          how,
+          dist: Number(d.toFixed(1)),
+          pos: { x: live.position.x, y: live.position.y, z: live.position.z },
+        });
+      }
+      if (Date.now() - lastJitterAt > 1800) {
+        target = presence.tooCloseToAnyone(bot)
+          ? presence.circleSlot(bot, live.position, 3.1)
+          : jitterPos(live.position, 2.4);
+        lastJitterAt = Date.now();
+        lastGoalAt = 0;
+      }
+    } else {
+      const destV = new Vec3(dest.x, dest.y, dest.z);
+      const dDest = bot.entity.position.distanceTo(destV);
+      const trace = dDest > loose + 4 ? sense?.pickTrace?.(bot, dest) : null;
+      if (trace) {
+        target = { x: trace.x, y: trace.y, z: trace.z };
+        how = `trace:${trace.kind}`;
+        onTrace = true;
+        sense.consumeNear(bot, 1.8);
+      } else {
+        onTrace = false;
+      }
+      const d = bot.entity.position.distanceTo(onTrace ? new Vec3(target.x, target.y, target.z) : destV);
+      presence.applyGait(bot, soul, dDest);
+      if (!onTrace && dDest <= loose + 1) {
+        await arriveSoft(bot, null, soul, ctx);
+        throwIfAborted(ctx);
+        await presence.glanceAround(bot);
+        const nowLive = player ? bot.players[player]?.entity : null;
+        if (nowLive) continue;
+        try {
+          bot.chat(presence.pickMissLine(player));
+        } catch {
+          /* */
+        }
+        throwIfAborted(ctx);
+        const pose = await presence.waitPose(bot);
+        throwIfAborted(ctx);
+        return ok('arrived_area', {
+          player: player || null,
+          how,
+          dist: Number(dDest.toFixed(1)),
+          at: dest,
+          pose,
+          shouted: true,
+          hint: player ? `${player} not in sight` : 'area reached',
+        });
+      }
+    }
+
+    if (Date.now() - lastGoalAt > 2000) {
+      try {
+        setWalkGoal(target, onTrace ? 1 : Math.max(2, loose - 1));
+      } catch {
+        await nav(ctx, target, onTrace ? 1 : loose, Math.min(15000, end - Date.now()));
+      }
+    }
+    const glanceEvery = gait.look_interval_ms + Math.random() * 800;
+    if (Date.now() - lastGlance > glanceEvery) {
+      lastGlance = Date.now();
+      if (Math.random() < gait.pause_chance) {
+        try {
+          bot.pathfinder?.setGoal?.(null);
+        } catch {
+          /* */
+        }
+        await presence.glanceAround(bot);
+        throwIfAborted(ctx);
+        await sleep(280 + Math.random() * 420);
+        throwIfAborted(ctx);
+        lastGoalAt = 0;
+      }
+    }
+    await sleep(320 + Math.random() * 220);
+  }
+
+  try {
+    bot.pathfinder?.setGoal?.(null);
+  } catch {
+    /* */
+  }
+  fail('Timed out looking for ' + (player || 'coords'), 'TIMEOUT', { how, dest });
+}
+
+async function doEmote(ctx, args) {
+  const { bot, soul } = ctx;
+  ensureConnected(bot);
+  const kind = args.kind || args.name || args.emote || 'wave';
+  const targetName = args.player || args.to;
+  const ent = targetName ? bot.players[targetName]?.entity : null;
+  const did = await presence.emote(bot, kind, {
+    target: ent?.position,
+    text: args.text,
+  });
+  return ok('emote', { kind: did, soul: soul?.gait?.style });
+}
+
+async function listPeers(ctx) {
+  ctx.peers?.observeVisible?.(ctx.bot);
+  return ok('peers', { peers: ctx.peers?.list?.() || [] });
 }
 
 async function goToBlock(ctx, args) {
@@ -1512,7 +1761,10 @@ const SKILL_DOCS = {
   plant: 'Plant seeds on farmland',
   harvest: 'Break a mature crop',
   goto: 'Path to x,y,z',
-  go_to_player: 'Path to a visible player',
+  go_to_player: 'Soft walk toward a visible player (same as go_find)',
+  go_find: 'Find a player by sight, last coords, or torch/dig traces; loose circle arrive',
+  peers: 'Last heard / seen positions of other players',
+  emote: 'jump / sneak / wave / point (look at block + 这个)',
   go_to_block: 'Find nearest block type and walk to it',
   go_to_entity: 'Walk to nearest named entity',
   move_away: 'Path randomly away',
@@ -1581,6 +1833,9 @@ async function runSkill(name, ctxOrBot, runActionOrArgs, maybeArgs) {
       runAction: runActionOrArgs,
       config: maybeArgs?.config || {},
       places: maybeArgs?.places,
+      peers: maybeArgs?.peers,
+      soul: maybeArgs?.soul,
+      sense: maybeArgs?.sense,
       signal: maybeArgs?.signal,
     };
     args = maybeArgs || {};
@@ -1635,6 +1890,14 @@ async function runSkill(name, ctxOrBot, runActionOrArgs, maybeArgs) {
     go_to_coordinates: goTo,
     go_to_player: goToPlayer,
     goto_player: goToPlayer,
+    go_find: goFind,
+    find: goFind,
+    find_player: goFind,
+    peers: listPeers,
+    emote: doEmote,
+    wave: (ctx, a) => doEmote(ctx, { ...a, kind: 'wave' }),
+    point: (ctx, a) => doEmote(ctx, { ...a, kind: 'point' }),
+    last_seen: listPeers,
     go_to_block: goToBlock,
     search_for_block: goToBlock,
     move_away: moveAway,

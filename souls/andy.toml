@@ -22,6 +22,15 @@ item_collecting = true
 torch_placing = true
 cowardice = false
 hunting = false
+seek_light = true
+
+[gait]
+style = "amble"
+sprint = false
+sneak_near = 0
+pause_chance = 0.22
+look_interval_ms = 2000
+greet_jump = true
 
 [idle]
 wander_chance = 0.08

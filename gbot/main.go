@@ -299,9 +299,15 @@ func parseDoLine(s string) map[string]interface{} {
 					m["count"] = n
 				}
 			}
-		case "go_to_player", "look_player":
+		case "go_to_player", "look_player", "go_find", "find", "find_player":
 			if len(parts) > 2 {
 				m["player"] = parts[2]
+			}
+			if len(parts) >= 6 {
+				x, _ := strconv.ParseFloat(parts[3], 64)
+				y, _ := strconv.ParseFloat(parts[4], 64)
+				z, _ := strconv.ParseFloat(parts[5], 64)
+				m["x"], m["y"], m["z"] = x, y, z
 			}
 		case "write_sign", "say":
 			m["text"] = unescape(strings.Join(parts[2:], " "))
@@ -452,6 +458,18 @@ func parseDoLine(s string) map[string]interface{} {
 		case "forget_place":
 			if len(parts) > 2 {
 				m["name"] = parts[2]
+			}
+		case "emote":
+			if len(parts) > 2 {
+				m["kind"] = parts[2]
+			}
+			if len(parts) > 3 {
+				m["player"] = parts[3]
+			}
+		case "wave", "point":
+			if len(parts) > 2 {
+				m["player"] = parts[2]
+				m["text"] = unescape(strings.Join(parts[2:], " "))
 			}
 		default:
 			if len(parts) > 2 {

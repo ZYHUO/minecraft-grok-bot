@@ -33,6 +33,8 @@ const { runSkill, SKILL_DOCS, signTextOf } = require('./skills');
 const { PlaceBook } = require('./places');
 const { createSocketServer } = require('./socket-server');
 const { parseWorldMessage } = require('./coord');
+const { PeerBook } = require('./peers');
+const presence = require('./presence');
 
 // ---------- CLI ----------
 function parseArgs(argv) {
@@ -124,6 +126,8 @@ try {
 }
 const diaryFile = path.join(memoryDir, `${config.botName}.jsonl`);
 const placeBook = new PlaceBook(config.botName, memoryDir);
+const peers = new PeerBook();
+const sense = new presence.WorldSense();
 
 function diary(kind, data) {
   try {
@@ -514,6 +518,7 @@ function createBot() {
   }
 
   bot = instance;
+  bot._soul = soul;
   let reconnectScheduled = false;
   const requestReconnect = (why) => {
     if (quitting || reconnectScheduled) return;
@@ -561,6 +566,12 @@ function createBot() {
     } catch (e) {
       log('autoEat setup warn', e.message);
     }
+
+    const peerTick = setInterval(() => {
+      if (bot !== instance || !bot?.entity) return;
+      peers.observeVisible(bot);
+    }, 4000);
+    instance.once('end', () => clearInterval(peerTick));
   });
 
   // Player chat — primary multi-agent bus (in-world only)
@@ -569,22 +580,51 @@ function createBot() {
     if (username === bot.username) return;
     pushChat(`<${username}> ${message}`, { from: username });
     const parsed = parseWorldMessage(message, username);
-    if (parsed) eventLog.push('coord', parsed);
-
-    // Optional tiny auto-react (still no planner)
-    if (soul.modes?.auto_chat_react && !isBusy()) {
-      const m = String(message);
-      if (new RegExp(`\\b${bot.username}\\b`, 'i').test(m) || m.includes('有人')) {
-        setTimeout(() => {
-          if (!isBusy() && bot === instance) {
-            try {
-              bot.chat('嗯？');
-            } catch {
-              /* */
-            }
-          }
-        }, 800 + Math.random() * 1200);
+    if (parsed) {
+      eventLog.push('coord', parsed);
+      if (parsed.x != null && parsed.z != null) {
+        peers.note(username, parsed, parsed.kind || 'chat');
       }
+    }
+
+    const named =
+      new RegExp(`\\b${bot.username}\\b`, 'i').test(String(message)) ||
+      String(message).includes(bot.username);
+    if (named) {
+      const speaker = bot.players[username]?.entity;
+      eventLog.push('named', { from: username, text: message });
+      (async () => {
+        if (bot !== instance) return;
+        if (speaker?.position) {
+          try {
+            await bot.lookAt(speaker.position.offset(0, speaker.height * 0.85, 0), true);
+          } catch {
+            /* */
+          }
+        }
+      })().catch(() => {});
+      if (!isBusy() && soul.modes?.social !== false) {
+        setTimeout(() => {
+          if (bot !== instance) return;
+          try {
+            bot.chat(presence.pickReactLine('named', soul));
+          } catch {
+            /* */
+          }
+        }, 500 + Math.random() * 900);
+      } else {
+        sense.push('named', { from: username, pos: speaker?.position, voiced: false });
+      }
+    } else if (soul.modes?.auto_chat_react && !isBusy() && String(message).includes('有人')) {
+      setTimeout(() => {
+        if (!isBusy() && bot === instance) {
+          try {
+            bot.chat('嗯？');
+          } catch {
+            /* */
+          }
+        }
+      }, 800 + Math.random() * 1200);
     }
   });
 
@@ -595,18 +635,92 @@ function createBot() {
     if (position === 'chat') return;
     if (/^<[^>]+>\s/.test(line)) return;
     pushChat(line);
+    const death = presence.parseDeathLine(line);
+    if (death && death.name !== bot.username) {
+      const last = peers.get(death.name);
+      eventLog.push('death_other', { name: death.name, how: death.how, last });
+      if (!isBusy() && soul.modes?.social !== false) {
+        setTimeout(() => {
+          if (bot !== instance) return;
+          try {
+            bot.chat(presence.pickReactLine('death', soul));
+          } catch {
+            /* */
+          }
+        }, 400 + Math.random() * 800);
+      } else {
+        sense.push('death', {
+          name: death.name,
+          how: death.how,
+          pos: last ? { x: last.x, y: last.y, z: last.z } : null,
+          voiced: false,
+        });
+      }
+    }
   });
 
   bot.on('whisper', (username, message) => {
     if (bot !== instance) return;
     pushChat(`[whisper][${username}] ${message}`, { from: username, whisper: true });
     const parsed = parseWorldMessage(message, username);
-    if (parsed) eventLog.push('coord', { ...parsed, whisper: true });
+    if (parsed) {
+      eventLog.push('coord', { ...parsed, whisper: true });
+      if (parsed.x != null && parsed.z != null) peers.note(username, parsed, 'whisper');
+    }
   });
 
-  bot.on('blockUpdate', (_oldBlock, newBlock) => {
-    if (bot !== instance || !newBlock) return;
-    if (!String(newBlock.name || '').includes('sign')) return;
+  let lastBoomAt = 0;
+  const onBoom = (label) => {
+    if (bot !== instance) return;
+    if (!/explod|explosion|explode/i.test(String(label || ''))) return;
+    const now = Date.now();
+    if (now - lastBoomAt < 1500) return;
+    lastBoomAt = now;
+    eventLog.push('explode', { sound: String(label) });
+    if (!isBusy() && soul.modes?.social !== false) {
+      setTimeout(() => {
+        if (bot !== instance) return;
+        try {
+          bot.chat(presence.pickReactLine('explode', soul));
+        } catch {
+          /* */
+        }
+      }, 200 + Math.random() * 500);
+    } else {
+      sense.push('explode', { voiced: false });
+    }
+  };
+  bot.on('soundEffectHeard', (soundName) => onBoom(soundName));
+  bot.on('hardcodedSoundEffectHeard', (_id, name) => onBoom(name));
+
+  bot.on('blockUpdate', (oldBlock, newBlock) => {
+    if (bot !== instance) return;
+    if (oldBlock && newBlock && oldBlock.name !== 'air' && (newBlock.name === 'air' || newBlock.name === 'cave_air')) {
+      sense.noteTrace('dig', oldBlock.position);
+    }
+    if (newBlock && String(newBlock.name || '').includes('torch')) {
+      sense.noteTrace('torch', newBlock.position);
+    }
+    if (
+      oldBlock &&
+      presence.interestingOre(oldBlock.name) &&
+      newBlock &&
+      (newBlock.name === 'air' || newBlock.name === 'cave_air') &&
+      bot.entity
+    ) {
+      const d = bot.entity.position.distanceTo(oldBlock.position);
+      if (d < 10) {
+        sense.push('ore', { pos: oldBlock.position, block: oldBlock.name });
+        eventLog.push('ore', { block: oldBlock.name, pos: oldBlock.position });
+      }
+    } else if (newBlock && presence.interestingOre(newBlock.name) && bot.entity) {
+      const d = bot.entity.position.distanceTo(newBlock.position);
+      if (d < 8) {
+        sense.push('ore', { pos: newBlock.position, block: newBlock.name });
+        eventLog.push('ore', { block: newBlock.name, pos: newBlock.position });
+      }
+    }
+    if (!newBlock || !String(newBlock.name || '').includes('sign')) return;
     let parsedSign = { text: '', available: false };
     try {
       parsedSign = signTextOf(newBlock);
@@ -620,7 +734,12 @@ function createBot() {
     };
     eventLog.push('sign', { pos, block: newBlock.name, text: parsedSign.text || '' });
     const parsed = parseWorldMessage(parsedSign.text || '', 'sign');
-    if (parsed) eventLog.push('coord', { ...parsed, via: 'sign', pos });
+    if (parsed) {
+      eventLog.push('coord', { ...parsed, via: 'sign', pos });
+      if (parsed.from && parsed.from !== 'sign' && parsed.x != null) {
+        peers.note(parsed.from, parsed, 'sign');
+      }
+    }
   });
 
   bot.on('health', () => {
@@ -675,6 +794,7 @@ function fullStatus(detail) {
     goal: modeRunner.getGoal(),
     socket: socketPath,
     events_latest: eventLog.seq,
+    peers: peers.list(),
   };
 }
 
@@ -756,7 +876,7 @@ const socketApi = createSocketServer(socketPath, {
       'timeout_ms', 'seconds', 'distance', 'depth', 'sign', 'place', 'label',
       'dx', 'dy', 'dz', 'face', 'to', 'mob', 'entity',
       'tool', 'target', 'seed', 'index', 'id', 'need', 'give', 'tag',
-      'deliver', 'note', 'chest',
+      'deliver', 'note', 'chest', 'kind', 'emote',
     ]) {
       if (req[k] !== undefined) args[k] = req[k];
     }
@@ -782,7 +902,16 @@ const socketApi = createSocketServer(socketPath, {
     try {
       const result = await runSkill(
         skillName,
-        { bot, runAction: run, config, places: placeBook, signal: abortController.signal },
+        {
+          bot,
+          runAction: run,
+          config,
+          places: placeBook,
+          peers,
+          soul,
+          sense,
+          signal: abortController.signal,
+        },
         args
       );
       if (currentJob && currentJob.id === jobId && currentJob.state === 'running') {

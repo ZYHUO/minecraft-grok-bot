@@ -67,10 +67,9 @@ No hub. No ticket system. Just the world.
 
 ```text
 events          →  see chat + coord + sign
-shout_* / say  →  propose meet/trade/help
-find_signs     →  read the bulletin board later
-mail / give    →  physical letters and gifts
-go / follow    →  bodies actually move
+shout_meet     →  "我在 10 64 -3 附近，过来找我"
+go_find Andy   →  sight first, else last heard coords; walk loose
+peers          →  who said they were where
 ```
 
 Do **not** wait for a hub mail. If nobody answers `[meet]`, go build alone or shout again.

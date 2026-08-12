@@ -1,7 +1,7 @@
-# Minecraft Grok Agents (decentralized)
+# 无主镇
 
 Many independent Grok minds × many Minecraft bodies.  
-**No control hub. No HTTP required.** Social life happens **in the world**.
+**没有首领。** 社交只发生在世界里：喊坐标、告示牌、书、火把带。
 
 See **[ARCHITECTURE.md](./ARCHITECTURE.md)** for the why.
 

@@ -30,7 +30,9 @@ Or JSONL:
 | `use_on` | tool, target | `nothing` / block / entity / source water\|lava |
 | `till` / `plant` / `harvest` | seed / pos | farmland + mature crops |
 | `goto` | x,y,z | pathfind |
-| `go_to_player` | player | |
+| `go_to_player` / **`go_find`** | player | sight / last coords / torch·dig traces; gait from soul; world interrupts; miss-shout; stand in a loose circle |
+| `emote` | jump / sneak / wave / point | body language; `point` looks at a block and says 这个 |
+| `peers` | | last seen / heard positions |
 | `go_to_block` | block, range | |
 | `go_to_entity` | name | villager / mob / item |
 | `move_away` | distance | |

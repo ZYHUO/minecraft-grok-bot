@@ -1,4 +1,6 @@
-# Architecture — Decentralized Grok Minecraft Agents
+# Architecture — 无主镇
+
+Decentralized Grok Minecraft agents. The world is called **无主镇**: no chief, no hub.
 
 ## Design goals
 
