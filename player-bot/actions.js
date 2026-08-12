@@ -5,7 +5,7 @@ const {
   goals: { GoalNear, GoalFollow },
   Movements,
 } = require('mineflayer-pathfinder');
-const { isSpectator } = require('./presence');
+const { isSpectator, asVec3 } = require('./presence');
 const mc = require('./mcdata');
 
 /**
@@ -202,8 +202,14 @@ function withAbortAndTimeout(promise, signal, timeoutMs, label = 'operation') {
  * Does NOT require onGround (works in water / mid-air / ladders).
  */
 async function navigateTo(bot, config, pos, range, timeoutMs, signal) {
+  const dest = asVec3(pos);
+  if (!dest) {
+    const err = new Error('navigateTo requires x,y,z');
+    err.code = 'BAD_ARGS';
+    throw err;
+  }
   bot.pathfinder.setMovements(setupMovements(bot));
-  const goal = new GoalNear(pos.x, pos.y, pos.z, range);
+  const goal = new GoalNear(dest.x, dest.y, dest.z, range);
 
   // Prefer promise API if present (mineflayer-pathfinder)
   if (typeof bot.pathfinder.goto === 'function') {
@@ -678,7 +684,7 @@ async function executeAction(bot, config, body, signal) {
       const doCraft = async () => {
         let table = null;
         if (body.table_x !== undefined) {
-          table = bot.blockAt({ x: Number(body.table_x), y: Number(body.table_y), z: Number(body.table_z) });
+          table = bot.blockAt(new Vec3(Number(body.table_x), Number(body.table_y), Number(body.table_z)));
           if (table && table.name !== 'crafting_table') table = null;
         }
         if (!table) {

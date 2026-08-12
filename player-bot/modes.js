@@ -7,7 +7,7 @@
  */
 
 const { isHostileName, isFleeAlwaysName, timeOfDay } = require('./mcdata');
-const { findShelterLight, emote, blockLightLevel, isSpectator } = require('./presence');
+const { findShelterLight, emote, blockLightLevel, isSpectator, findShore, inWater } = require('./presence');
 const combat = require('./combat');
 
 function rand() {
@@ -144,7 +144,7 @@ class ModeRunner {
     const bname = block?.name || 'air';
     const aname = above?.name || 'air';
 
-    if (bot.entity.isInWater || aname === 'water' || bname === 'water' || aname === 'flowing_water' || bname === 'flowing_water') {
+    if (inWater(bot) || aname === 'water' || bname === 'water' || aname === 'flowing_water' || bname === 'flowing_water') {
       this.emit('mode', { name: 'self_preservation', detail: 'water' });
       try {
         bot.setControlState('jump', true);
@@ -152,7 +152,7 @@ class ModeRunner {
       } catch {
         /* */
       }
-      const shore = this.findShore(bot, 14);
+      const shore = findShore(bot, 16);
       if (shore) {
         try {
           await this.abortJob('water');
@@ -272,33 +272,6 @@ class ModeRunner {
     await bot.equip(item, 'hand');
     await bot.consume();
     return true;
-  }
-
-  findShore(bot, range = 14) {
-    const me = bot.entity?.position;
-    if (!me) return null;
-    const origin = me.floored();
-    let best = null;
-    let bestD = Infinity;
-    for (let dx = -range; dx <= range; dx++) {
-      for (let dz = -range; dz <= range; dz++) {
-        const p = origin.offset(dx, 0, dz);
-        const feet = bot.blockAt(p);
-        const below = bot.blockAt(p.offset(0, -1, 0));
-        if (!feet || !below) continue;
-        const fn = feet.name || '';
-        const bn = below.name || '';
-        if (fn !== 'air' && fn !== 'cave_air') continue;
-        if (fn.includes('water') || bn.includes('water') || bn.includes('lava')) continue;
-        if (bn === 'air' || bn === 'cave_air') continue;
-        const d = Math.abs(dx) + Math.abs(dz);
-        if (d > 0 && d < bestD) {
-          bestD = d;
-          best = p;
-        }
-      }
-    }
-    return best;
   }
 
   nearestMob(bot, pred, range) {

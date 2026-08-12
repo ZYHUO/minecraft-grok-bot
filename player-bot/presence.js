@@ -377,6 +377,66 @@ function parseDeathLine(line) {
   return { name: m[1], how: m[2] };
 }
 
+function asVec3(pos) {
+  if (!pos) return null;
+  if (typeof pos.floored === 'function') return pos;
+  if (pos.x == null || pos.y == null || pos.z == null) return null;
+  return new Vec3(Number(pos.x), Number(pos.y), Number(pos.z));
+}
+
+function isWaterName(name) {
+  const n = String(name || '');
+  return n === 'water' || n === 'flowing_water' || n.includes('water');
+}
+
+function inWater(bot) {
+  if (!bot?.entity) return false;
+  if (bot.entity.isInWater) return true;
+  const feet = bot.blockAt(bot.entity.position);
+  const head = bot.blockAt(bot.entity.position.offset(0, 1, 0));
+  return isWaterName(feet?.name) || isWaterName(head?.name);
+}
+
+function isStandableLand(bot, pos) {
+  const feet = bot.blockAt(pos);
+  const below = bot.blockAt(pos.offset(0, -1, 0));
+  const head = bot.blockAt(pos.offset(0, 1, 0));
+  if (!feet || !below) return false;
+  const fn = feet.name || '';
+  const bn = below.name || '';
+  const hn = head?.name || 'air';
+  if (isWaterName(fn) || isWaterName(bn) || isWaterName(hn)) return false;
+  if (fn !== 'air' && fn !== 'cave_air' && fn !== 'void_air') return false;
+  if (hn !== 'air' && hn !== 'cave_air' && hn !== 'void_air') return false;
+  if (bn === 'air' || bn === 'cave_air' || bn === 'void_air') return false;
+  if (bn.includes('lava')) return false;
+  return true;
+}
+
+/** Dry standable cell near the bot. Searches Y as well — same-Y only misses river banks. */
+function findShore(bot, range = 16) {
+  const me = bot.entity?.position;
+  if (!me) return null;
+  const origin = me.floored();
+  let best = null;
+  let bestD = Infinity;
+  for (let dy = -3; dy <= 5; dy++) {
+    for (let dx = -range; dx <= range; dx++) {
+      for (let dz = -range; dz <= range; dz++) {
+        if (dx === 0 && dz === 0 && dy === 0) continue;
+        const p = origin.offset(dx, dy, dz);
+        if (!isStandableLand(bot, p)) continue;
+        const d = Math.abs(dx) + Math.abs(dz) + Math.abs(dy) * 2;
+        if (d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+    }
+  }
+  return best;
+}
+
 function findShelterLight(bot, range = 24) {
   return bot.findBlock({
     matching: (b) =>
@@ -413,6 +473,11 @@ module.exports = {
   parseDeathLine,
   findShelterLight,
   blockLightLevel,
+  asVec3,
+  isWaterName,
+  inWater,
+  isStandableLand,
+  findShore,
 };
 
 function blockLightLevel(block) {

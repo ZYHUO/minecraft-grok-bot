@@ -947,38 +947,27 @@ async function goToSurface(ctx) {
   });
 }
 
-function findShore(bot, range = 16) {
-  const me = bot.entity?.position;
-  if (!me) return null;
-  let best = null;
-  let bestD = Infinity;
-  const origin = me.floored();
-  for (let dx = -range; dx <= range; dx++) {
-    for (let dz = -range; dz <= range; dz++) {
-      const p = origin.offset(dx, 0, dz);
-      const feet = bot.blockAt(p);
-      const below = bot.blockAt(p.offset(0, -1, 0));
-      if (!feet || !below) continue;
-      if (!isAir(feet.name) || isFluidName(feet.name)) continue;
-      if (isAir(below.name) || isFluidName(below.name)) continue;
-      const d = Math.abs(dx) + Math.abs(dz);
-      if (d > 0 && d < bestD) {
-        bestD = d;
-        best = p;
-      }
+async function swimUp(bot, ms, signal) {
+  const deadline = Date.now() + (ms || 3500);
+  try {
+    bot.setControlState('jump', true);
+    bot.setControlState('sprint', true);
+    try {
+      await bot.look(bot.entity.yaw, -0.7, true);
+    } catch {
+      /* */
+    }
+    while (Date.now() < deadline && presence.inWater(bot)) {
+      throwIfAborted({ signal });
+      await sleep(120);
+    }
+  } finally {
+    try {
+      bot.setControlState('jump', false);
+    } catch {
+      /* */
     }
   }
-  return best;
-}
-
-function inWater(bot) {
-  if (bot.entity?.isInWater) return true;
-  const b = bot.blockAt(bot.entity.position);
-  const a = bot.blockAt(bot.entity.position.offset(0, 1, 0));
-  return (
-    (isFluidName(b?.name) && String(b.name).includes('water')) ||
-    (isFluidName(a?.name) && String(a.name).includes('water'))
-  );
 }
 
 async function wrapUp(ctx) {
@@ -990,19 +979,16 @@ async function wrapUp(ctx) {
   } catch {
     /* */
   }
-  const wet = inWater(bot);
-  if (wet) {
-    const shore = findShore(bot, 16);
+  if (presence.inWater(bot)) {
+    try {
+      await swimUp(bot, 3500, ctx.signal);
+    } catch (e) {
+      if (e.code === 'ABORTED') throw e;
+    }
+    const shore = presence.findShore(bot, 20);
     if (shore) {
       try {
-        await nav(ctx, shore, 2, 12000);
-      } catch (e) {
-        if (e.code === 'ABORTED') throw e;
-      }
-    }
-    if (inWater(bot)) {
-      try {
-        await goToSurface(ctx);
+        await nav(ctx, shore, 2, 15000);
       } catch (e) {
         if (e.code === 'ABORTED') throw e;
       }
@@ -1017,7 +1003,7 @@ async function wrapUp(ctx) {
   }
   const here = bot.blockAt(bot.entity.position);
   const light = presence.blockLightLevel(here);
-  if (light < 9) {
+  if (light < 9 && !presence.inWater(bot)) {
     const lamp = presence.findShelterLight(bot, 24);
     if (lamp?.position) {
       try {
@@ -1028,8 +1014,17 @@ async function wrapUp(ctx) {
     }
   }
   const after = bot.blockAt(bot.entity.position);
+  const wet = presence.inWater(bot);
+  if (wet) {
+    fail('still in water after wrap_up', 'STILL_IN_WATER', {
+      in_water: true,
+      light: presence.blockLightLevel(after),
+      health: bot.health,
+      food: bot.food,
+    });
+  }
   return ok('settled', {
-    in_water: inWater(bot),
+    in_water: false,
     light: presence.blockLightLevel(after),
     health: bot.health,
     food: bot.food,

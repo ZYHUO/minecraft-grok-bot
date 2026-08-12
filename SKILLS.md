@@ -44,7 +44,7 @@ Or JSONL:
 | **`defend`** | range | clear hostiles in range (same loop as hunt) |
 | `sleep` | | nearest bed; `ok:false` / `BED_FAILED` if daytime or monsters |
 | `stay` | seconds | abortable via `stop` |
-| **`wrap_up`** | | end of turn: stop motors, leave water, eat if low, walk to light |
+| **`wrap_up`** | | end of turn: stop motors, leave water, eat if low, walk to light. Still wet → `STILL_IN_WATER`, not settled |
 | `place_here` | item, dx,dy,dz | |
 | `dig_down` | depth | stops on fluid/drop |
 | `surface` | | column scan, then climb |
